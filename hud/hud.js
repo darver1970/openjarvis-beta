@@ -12,14 +12,12 @@ const stopButton = document.getElementById("stop-button");
 const voiceState = document.getElementById("voice-state");
 const voiceMeter = document.getElementById("voice-meter");
 const agentActivity = document.getElementById("agent-activity");
-let recorder;
-let audioChunks = [];
-let wakeEnabled = false;
-let wakeStream;
 let muted = false;
 let activeRequest;
 let lastVoiceEventId = "";
+let activeVoiceMessage = null;
 let voiceAudio = null;
+let voiceQueue = [];
 let conversation = [];
 let persistentRules = [];
 let projectMemory = { project: "OpenJarvis Beta", summary: "", entries: [] };
@@ -29,6 +27,9 @@ let agentRegistry = {
   active_agent_id: "jarvis"
 };
 let sidebarSection = "recent";
+let workbenchTab = "live";
+let workbenchActivity = [];
+let workbenchFile = "";
 const modelRouter = {
   default: "qwen3.5:4b",
   complex: "qwen3.5:9b",
@@ -133,6 +134,126 @@ function closeSidebar() {
   document.getElementById("sidebar-toggle")?.setAttribute("aria-expanded", "false");
 }
 
+function nativeWorkspaceApi() {
+  return window.pywebview?.api || null;
+}
+
+function openWorkbench(tab = workbenchTab) {
+  closeSidebar();
+  closeAgentsSidebar();
+  workbenchTab = tab;
+  document.body.classList.add("workbench-open");
+  document.getElementById("workbench")?.setAttribute("aria-hidden", "false");
+  document.getElementById("workbench-toggle")?.setAttribute("aria-expanded", "true");
+  renderWorkbench();
+}
+
+function closeWorkbench() {
+  document.body.classList.remove("workbench-open");
+  document.getElementById("workbench")?.setAttribute("aria-hidden", "true");
+  document.getElementById("workbench-toggle")?.setAttribute("aria-expanded", "false");
+}
+
+function setWorkbenchWidth(width) {
+  const safeWidth = Math.max(360, Math.min(920, Math.round(width)));
+  document.documentElement.style.setProperty("--workbench-width", `${safeWidth}px`);
+  localStorage.setItem("jarvis-workbench-width", String(safeWidth));
+}
+
+function bindWorkbenchResize() {
+  const handle = document.getElementById("workbench-resizer");
+  if (!handle) return;
+  setWorkbenchWidth(Number(localStorage.getItem("jarvis-workbench-width")) || 520);
+  handle.addEventListener("pointerdown", event => {
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    const move = moveEvent => setWorkbenchWidth(window.innerWidth - moveEvent.clientX);
+    const end = endEvent => {
+      handle.releasePointerCapture(endEvent.pointerId);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+  });
+}
+
+async function openWorkbenchFile(path) {
+  const api = nativeWorkspaceApi();
+  if (!api) throw new Error("Pracovna vyžaduje vlastní Jarvis-HUD.exe.");
+  const file = await api.read_file(path);
+  workbenchFile = file.path;
+  document.getElementById("workbench-detail").innerHTML = `<div class="workbench-file-head"><b>${safeText(file.path)}</b><button id="workbench-context" type="button" title="Vložit soubor do konverzace">↗</button><button id="workbench-diff" type="button" title="Zobrazit Git diff">Δ</button></div><pre>${safeText(file.content)}</pre>`;
+  document.getElementById("workbench-context")?.addEventListener("click", () => {
+    input.value = `Použij jako kontext soubor ${file.path}:\n\n${file.content.slice(0, 12000)}`;
+    input.focus();
+    closeWorkbench();
+  });
+  document.getElementById("workbench-diff")?.addEventListener("click", async () => {
+    const diff = await api.git_diff(file.path);
+    document.getElementById("workbench-detail").innerHTML = `<div class="workbench-file-head"><b>DIFF · ${safeText(diff.path)}</b><button id="workbench-back-file" type="button">←</button></div><pre>${safeText(diff.content)}</pre>`;
+    document.getElementById("workbench-back-file")?.addEventListener("click", () => openWorkbenchFile(file.path));
+  });
+}
+
+async function renderWorkbench() {
+  const content = document.getElementById("workbench-content");
+  if (!content) return;
+  document.querySelectorAll("[data-workbench-tab]").forEach(button => button.classList.toggle("active", button.dataset.workbenchTab === workbenchTab));
+  const api = nativeWorkspaceApi();
+  if (!api) { content.innerHTML = '<p class="empty-state">Vlastní Jarvis-HUD.exe není aktivní.</p>'; return; }
+  try {
+    if (workbenchTab === "live") {
+      const status = await api.git_status();
+      const feed = workbenchActivity.length ? workbenchActivity.map(item => `<li><time>${safeText(item.time)}</time>${safeText(item.text)}</li>`).join("") : '<li>Čekám na první úkol.</li>';
+      const changes = status.entries.length ? status.entries.map(item => `<li>${safeText(item)}</li>`).join("") : '<li>ČISTÝ STAV</li>';
+      content.innerHTML = `<section class="workbench-section"><h3>AKTUÁLNÍ ČINNOST</h3><ol class="workbench-feed">${feed}</ol></section><section class="workbench-section"><h3>GIT</h3><ul class="workbench-git">${changes}</ul></section><button id="create-snapshot" class="primary-side" type="button">VYTVOŘIT NÁVRATOVÝ BOD</button><section class="workbench-section"><h3>KARANTÉNA</h3><ul id="quarantine-list" class="workbench-git"></ul></section>`;
+      document.getElementById("create-snapshot")?.addEventListener("click", async () => {
+        const snapshot = await api.create_snapshot(window.prompt("Název návratového bodu:", "před úpravou") || "bod");
+        addActivity(`NÁVRATOVÝ BOD: ${snapshot.name}`);
+        renderWorkbench();
+      });
+      const quarantine = await api.list_quarantine();
+      document.getElementById("quarantine-list").innerHTML = quarantine.length ? quarantine.map(item => `<li>${safeText(item.name)} · ${safeText(item.size)} B</li>`).join("") : '<li>PRÁZDNÁ</li>';
+    } else if (workbenchTab === "files") {
+      const directory = await api.list_files(workbenchFile && workbenchFile.includes("/") ? workbenchFile.slice(0, workbenchFile.lastIndexOf("/")) : "");
+      const parent = directory.parent === null ? "" : `<button class="workbench-entry" data-workbench-dir="${safeText(directory.parent)}" type="button">..</button>`;
+      const entries = directory.entries.map(item => `<button class="workbench-entry" data-workbench-${item.kind === "directory" ? "dir" : "file"}="${safeText(item.path)}" type="button"><b>${item.kind === "directory" ? "▸" : "·"}</b>${safeText(item.name)}</button>`).join("");
+      content.innerHTML = `<div class="workbench-path">/${safeText(directory.path)}</div><div class="workbench-files">${parent}${entries || '<p class="empty-state">Prázdný adresář.</p>'}</div><section id="workbench-detail" class="workbench-detail"><p class="empty-state">Vyber soubor pro náhled.</p></section>`;
+      content.querySelectorAll("[data-workbench-dir]").forEach(button => button.addEventListener("click", async () => { workbenchFile = `${button.dataset.workbenchDir}/.`.replace(/^\//, ""); await renderWorkbench(); }));
+      content.querySelectorAll("[data-workbench-file]").forEach(button => button.addEventListener("click", () => openWorkbenchFile(button.dataset.workbenchFile).catch(error => window.alert(error.message))));
+    } else {
+      const browserState = await api.list_browser_tabs();
+      const tabs = browserState.tabs.map(tab => {
+        const active = tab.id === browserState.active_tab_id ? " active" : "";
+        const label = tab.url.replace(/^https?:\/\//, "").slice(0, 24);
+        return `<div class="workbench-tab${active}"><button data-browser-tab="${safeText(tab.id)}" type="button" title="${safeText(tab.url)}">${safeText(label)}</button><button data-browser-close="${safeText(tab.id)}" type="button" aria-label="Zavřít kartu">×</button></div>`;
+      }).join("") || '<p class="empty-state">Otevři první kartu.</p>';
+      content.innerHTML = `<div class="workbench-browser-tabs">${tabs}</div><form id="workbench-browser-form" class="workbench-browser"><input id="workbench-address" value="https://github.com/" aria-label="Adresa webové stránky"><button type="submit" title="Otevřít aktuální kartu">↗</button></form><div class="workbench-browser-actions"><button id="new-browser-tab" type="button" title="Nová karta">＋</button><button data-browser-action="back" type="button" title="Zpět">←</button><button data-browser-action="forward" type="button" title="Vpřed">→</button><button data-browser-action="reload" type="button" title="Obnovit">↻</button><button data-browser-url="https://github.com/" type="button">GITHUB</button></div><form id="quarantine-download-form" class="workbench-download"><input id="quarantine-download-url" type="url" inputmode="url" placeholder="https://.../soubor.zip" aria-label="Adresa souboru ke stažení do karantény"><button type="submit">STÁHNOUT</button></form><p id="browser-state" class="empty-state">Přihlášení provádíš přímo ve vlastním okně JARVIS WEB.</p>`;
+      const openBrowser = async url => {
+        const result = await api.open_browser(url);
+        document.getElementById("browser-state").textContent = `OTEVŘENO: ${result.url}`;
+        addActivity(`JARVIS WEB: ${result.url}`);
+        renderWorkbench();
+      };
+      document.getElementById("workbench-browser-form").addEventListener("submit", event => { event.preventDefault(); openBrowser(document.getElementById("workbench-address").value).catch(error => window.alert(error.message)); });
+      document.getElementById("new-browser-tab")?.addEventListener("click", async () => {
+        try { await api.new_browser_tab(document.getElementById("workbench-address").value); addActivity("JARVIS WEB: NOVÁ KARTA"); renderWorkbench(); } catch (error) { window.alert(error.message); }
+      });
+      document.getElementById("quarantine-download-form")?.addEventListener("submit", async event => {
+        event.preventDefault();
+        const url = document.getElementById("quarantine-download-url").value;
+        if (!window.confirm("Stáhnout tento soubor pouze do místní karantény JARVISu?")) return;
+        try { const file = await api.download_to_quarantine(url); document.getElementById("browser-state").textContent = `KARANTÉNA: ${file.name}`; addActivity(`KARANTÉNA: ${file.name}`); } catch (error) { window.alert(error.message); }
+      });
+      content.querySelectorAll("[data-browser-tab]").forEach(button => button.addEventListener("click", async () => { try { await api.select_browser_tab(button.dataset.browserTab); renderWorkbench(); } catch (error) { window.alert(error.message); } }));
+      content.querySelectorAll("[data-browser-close]").forEach(button => button.addEventListener("click", async () => { try { await api.close_browser_tab(button.dataset.browserClose); renderWorkbench(); } catch (error) { window.alert(error.message); } }));
+      content.querySelectorAll("[data-browser-url]").forEach(button => button.addEventListener("click", () => openBrowser(button.dataset.browserUrl).catch(error => window.alert(error.message))));
+      content.querySelectorAll("[data-browser-action]").forEach(button => button.addEventListener("click", () => api.browser_action(button.dataset.browserAction).catch(error => window.alert(error.message))));
+    }
+  } catch (error) { content.innerHTML = `<p class="empty-state">${safeText(error.message)}</p>`; }
+}
+
 async function renderSidebar() {
   const content = document.getElementById("sidebar-content");
   if (!content) return;
@@ -184,7 +305,7 @@ async function renderSidebar() {
       const cards = agents.map(agent => {
         const active = agent.id === agentRegistry.active_agent_id;
         const paused = agent.status === "paused";
-        return `<article class="agent-card${active ? " active" : ""}"><button class="agent-select" data-agent-select="${safeText(agent.id)}" type="button"><b>${safeText(agent.name)}</b><small>${safeText(agent.role)}</small><span>${paused ? "POZASTAVEN" : agent.status === "working" ? "PRACUJE" : agent.status === "error" ? "CHYBA" : active ? "AKTIVNÍ" : "PŘIPRAVEN"}</span>${agent.current_task ? `<small>ÚKOL: ${safeText(agent.current_task)}</small>` : ""}${agent.last_result ? `<small>POSLEDNÍ: ${safeText(agent.last_result)}</small>` : ""}</button><button class="agent-toggle" data-agent-toggle="${safeText(agent.id)}" type="button" ${agent.id === "jarvis" || agent.status === "working" ? "disabled" : ""}>${paused ? "SPUSTIT" : "POZASTAVIT"}</button></article>`;
+        return `<article class="agent-card${active ? " active" : ""}"><button class="agent-select" data-agent-select="${safeText(agent.id)}" type="button" ${agent.status === "planned" ? "disabled" : ""}><b>${safeText(agent.name)}</b><small>${safeText(agent.role)}</small><span>${agent.status === "planned" ? "ČEKÁ NA PŘÍPRAVU" : paused ? "POZASTAVEN" : agent.status === "working" ? "PRACUJE" : agent.status === "error" ? "CHYBA" : active ? "AKTIVNÍ" : "PŘIPRAVEN"}</span>${agent.current_task ? `<small>ÚKOL: ${safeText(agent.current_task)}</small>` : ""}${agent.last_result ? `<small>POSLEDNÍ: ${safeText(agent.last_result)}</small>` : ""}</button><button class="agent-toggle" data-agent-toggle="${safeText(agent.id)}" type="button" ${agent.id === "jarvis" || agent.status === "working" || agent.status === "planned" ? "disabled" : ""}>${agent.status === "planned" ? "ČEKÁ" : paused ? "SPUSTIT" : "POZASTAVIT"}</button></article>`;
       }).join("") || '<p class="empty-state">Žádní agenti nejsou nainstalováni.</p>';
       content.innerHTML = `<button id="show-agent-catalog" class="primary-side" type="button">＋ INSTALOVAT AGENTA</button><p class="agent-note">Agent pracuje pouze v rozsahu svých pravidel a oprávnění.</p><div class="agent-list">${cards}</div>`;
       content.querySelectorAll("[data-agent-select]").forEach(button => button.addEventListener("click", async () => {
@@ -200,8 +321,15 @@ async function renderSidebar() {
       document.getElementById("show-agent-catalog")?.addEventListener("click", () => renderAgentCatalog());
     } else {
       jarvisSettings = await controlGet("/settings");
-      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
+      const audio = await controlGet("/audio/devices");
+      const outputs = await audioOutputDevices();
+      let providerData = await controlGet("/providers");
+      const inputOptions = (audio.inputs || []).map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("") || '<option value="">Mikrofon nebyl nalezen</option>';
+      const outputOptions = outputs.map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("");
+      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label>Vstupní mikrofon<select name="input_device">${inputOptions}</select></label><label>Výstup hlasu<select name="audio_output">${outputOptions}</select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Vstup řeči</dt><dd>LOKÁLNÍ · PO ZMĚNĚ RESTART</dd><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
       const formSettings = document.getElementById("settings-form");
+      const providerOptions = (providerData.providers || []).map(provider => `<option value="${safeText(provider.id)}">${safeText(provider.label)}${provider.configured ? "" : " · VYŽADUJE KLÍČ"}</option>`).join("");
+      formSettings.insertAdjacentHTML("afterbegin", `<label>Režim AI<select name="ai_provider">${providerOptions}</select></label><section id="cloud-key-box" class="cloud-key-box" hidden><p id="cloud-key-help"></p><label>API klíč<input id="cloud-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Vložit klíč pro vybraný režim"></label><button id="save-cloud-key" class="primary-side" type="button">ULOŽIT A OTESTOVAT KLÍČ</button></section>`);
       formSettings.default_model.value = jarvisSettings.default_model || modelRouter.default;
       formSettings.voice_output.checked = jarvisSettings.voice_output !== false;
       formSettings.wake_word.checked = jarvisSettings.wake_word !== false;
@@ -209,19 +337,76 @@ async function renderSidebar() {
       formSettings.borderless_window.checked = jarvisSettings.borderless_window !== false;
       formSettings.internet_mode.value = jarvisSettings.internet_mode || "on_request";
       formSettings.project_start_required.checked = jarvisSettings.project_start_required !== false;
+      formSettings.ai_provider.value = jarvisSettings.ai_provider || "local";
+      const selectedInput = (audio.inputs || []).find(device => device.name === audio.selected_input);
+      formSettings.input_device.value = selectedInput?.id || formSettings.input_device.options[0]?.value || "";
+      formSettings.audio_output.value = localStorage.getItem("jarvis-audio-output") || "default";
+      const refreshProviderKey = () => {
+        const selected = (providerData.providers || []).find(provider => provider.id === formSettings.ai_provider.value);
+        const remoteProvider = selected && selected.id !== "local";
+        const keyInput = document.getElementById("cloud-api-key");
+        document.getElementById("cloud-key-box").hidden = !remoteProvider;
+        keyInput.value = "";
+        keyInput.placeholder = selected ? `Klíč pouze pro ${selected.label}` : "Vložit klíč pro vybraný režim";
+        document.getElementById("cloud-key-help").textContent = remoteProvider
+          ? `${selected.label}: ${selected.configured ? "klíč je uložen pro tento režim. Vložte nový pouze pro změnu." : "vložte vlastní klíč a uložte jej před použitím."} Ukládá se šifrovaně pouze pro tento účet Windows.`
+          : "";
+      };
+      formSettings.ai_provider.addEventListener("change", refreshProviderKey);
+      document.getElementById("save-cloud-key").addEventListener("click", async () => {
+        const provider = formSettings.ai_provider.value;
+        const selected = (providerData.providers || []).find(item => item.id === provider);
+        const keyInput = document.getElementById("cloud-api-key");
+        const apiKey = keyInput.value.trim();
+        if (!selected || provider === "local") return;
+        if (!apiKey) {
+          keyInput.focus();
+          addMessage(`Vložte API klíč pro ${selected.label}.`, "jarvis");
+          return;
+        }
+        const button = document.getElementById("save-cloud-key");
+        button.disabled = true;
+        try {
+          await controlPost("/providers/key", { provider, api_key: apiKey, test: true });
+          providerData = await controlGet("/providers");
+          keyInput.value = "";
+          refreshProviderKey();
+          addActivity(`KLÍČ ${provider.toUpperCase()} ULOŽEN A OVĚŘEN`);
+          addMessage(`${selected.label}: API klíč byl úspěšně uložen a ověřen.`, "jarvis");
+        } catch (error) {
+          addMessage(`${selected.label}: klíč nebyl uložen. ${error.message}`, "jarvis");
+          keyInput.focus();
+        } finally {
+          button.disabled = false;
+        }
+      });
+      refreshProviderKey();
       formSettings.addEventListener("submit", async event => {
         event.preventDefault();
+        const provider = formSettings.ai_provider.value;
+        const selected = (providerData.providers || []).find(item => item.id === provider);
+        if (provider !== "local" && !selected?.configured) {
+          const apiKey = document.getElementById("cloud-api-key").value.trim();
+          if (!apiKey) {
+            document.getElementById("cloud-api-key").focus();
+            addMessage("Pro vybraný online režim nejdříve vložte API klíč.", "jarvis");
+            return;
+          }
+          await controlPost("/providers/key", { provider, api_key: apiKey, test: true });
+        }
         jarvisSettings = await controlPost("/settings", {
           default_model: formSettings.default_model.value, voice_output: formSettings.voice_output.checked,
           wake_word: formSettings.wake_word.checked, start_with_windows: formSettings.start_with_windows.checked,
           borderless_window: formSettings.borderless_window.checked, internet_mode: formSettings.internet_mode.value,
-          project_start_required: formSettings.project_start_required.checked
+          project_start_required: formSettings.project_start_required.checked, ai_provider: provider
         });
+        if (formSettings.input_device.value) await controlPost("/audio/input", { input_device: formSettings.input_device.value });
+        localStorage.setItem("jarvis-audio-output", formSettings.audio_output.value || "default");
         modelRouter.default = jarvisSettings.default_model;
         muted = !jarvisSettings.voice_output;
         muteButton.setAttribute("aria-pressed", String(muted));
         muteButton.textContent = muted ? "🔇 HLAS ZTIŠEN" : "🔊 HLAS ZAPNUT";
-        addActivity("NASTAVENÍ ULOŽENO · OKNO SE ZMĚNÍ PO DALŠÍM SPUŠTĚNÍ");
+        addActivity(`NASTAVENÍ ULOŽENO · REŽIM ${provider.toUpperCase()}`);
       });
     }
   } catch (error) { content.innerHTML = `<p class="empty-state">${safeText(error.message)}</p>`; }
@@ -287,7 +472,7 @@ async function renderAgentsSidebar() {
     // Při restartu lokální služby zůstane panel použitelný s koordinátorem.
   }
   const agents = agentRegistry.agents || [];
-  content.innerHTML = agents.map(agent => `<article class="agent-card ${agent.id === agentRegistry.active_agent_id ? "active" : ""}"><button class="agent-select" type="button" data-agent-select="${safeText(agent.id)}"><b>${safeText(agent.name)}</b><small>${safeText(agent.role || "Agent")}</small><span>${agent.status === "paused" ? "POZASTAVEN" : "PŘIPRAVEN"}</span></button><button class="agent-toggle" type="button" data-agent-toggle="${safeText(agent.id)}" ${agent.id === "jarvis" ? "disabled" : ""}>${agent.id === "jarvis" ? "HLAVNÍ" : agent.status === "paused" ? "SPUSTIT" : "PAUZA"}</button></article>`).join("") || '<p class="empty-state">Žádný agent není připraven.</p>';
+  content.innerHTML = agents.map(agent => `<article class="agent-card ${agent.id === agentRegistry.active_agent_id ? "active" : ""}"><button class="agent-select" type="button" data-agent-select="${safeText(agent.id)}" ${agent.status === "planned" ? "disabled" : ""}><b>${safeText(agent.name)}</b><small>${safeText(agent.role || "Agent")}</small><span>${agent.status === "planned" ? "ČEKÁ NA PŘÍPRAVU" : agent.status === "paused" ? "POZASTAVEN" : "PŘIPRAVEN"}</span></button><button class="agent-toggle" type="button" data-agent-toggle="${safeText(agent.id)}" ${agent.id === "jarvis" || agent.status === "planned" ? "disabled" : ""}>${agent.id === "jarvis" ? "HLAVNÍ" : agent.status === "planned" ? "ČEKÁ" : agent.status === "paused" ? "SPUSTIT" : "PAUZA"}</button></article>`).join("") || '<p class="empty-state">Žádný agent není připraven.</p>';
   content.querySelectorAll("[data-agent-select]").forEach(button => button.addEventListener("click", async () => {
     try { agentRegistry = await controlPost("/agents/activate", { agent_id: button.dataset.agentSelect }); } catch (_) { agentRegistry.active_agent_id = button.dataset.agentSelect; }
     renderAgentsSidebar();
@@ -328,15 +513,20 @@ async function renderAgentCatalog() {
 
 function installSidebar() {
   if (document.getElementById("sidebar")) return;
-  document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="agents-sidebar-toggle" class="agents-sidebar-toggle view-button" type="button" aria-label="Otevřít levý panel agentů" aria-expanded="false">AGENTI</button><button id="sidebar-toggle" class="sidebar-toggle view-button" type="button" aria-label="Otevřít pravý panel JARVISu" aria-expanded="false">PANEL</button>');
+  document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="agents-sidebar-toggle" class="agents-sidebar-toggle view-button" type="button" aria-label="Otevřít levý panel agentů" aria-expanded="false">AGENTI</button><button id="sidebar-toggle" class="sidebar-toggle view-button" type="button" aria-label="Otevřít pravý panel JARVISu" aria-expanded="false">PANEL</button><button id="workbench-toggle" class="workbench-toggle view-button" type="button" aria-label="Otevřít pracovní panel" aria-expanded="false">PRACOVNA</button>');
   document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Lokální navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">LOKÁLNÍ · A: · BEZ TOKENŮ</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
+  document.body.insertAdjacentHTML("beforeend", '<aside id="workbench" class="workbench" aria-label="Pracovna JARVISu" aria-hidden="true"><div id="workbench-resizer" class="workbench-resizer" role="separator" aria-orientation="vertical" aria-label="Změnit šířku pracovny"></div><div class="sidebar-head"><b>PRACOVNA</b><button id="workbench-close" type="button" aria-label="Zavřít Pracovnu">×</button></div><nav class="workbench-tabs" aria-label="Sekce Pracovny"><button data-workbench-tab="live" type="button">ŽIVĚ</button><button data-workbench-tab="files" type="button">SOUBORY</button><button data-workbench-tab="browser" type="button">PROHLÍŽEČ</button></nav><section id="workbench-content" class="workbench-content"></section></aside>');
   document.getElementById("sidebar-toggle").addEventListener("click", () => openSidebar());
   document.getElementById("agents-sidebar-toggle").addEventListener("click", () => openAgentsSidebar());
+  document.getElementById("workbench-toggle").addEventListener("click", () => openWorkbench());
   document.getElementById("sidebar-close").addEventListener("click", closeSidebar);
   document.getElementById("agents-sidebar-close").addEventListener("click", closeAgentsSidebar);
+  document.getElementById("workbench-close").addEventListener("click", closeWorkbench);
   document.getElementById("sidebar-backdrop").addEventListener("click", closeSidebar);
   document.getElementById("agents-sidebar-backdrop").addEventListener("click", closeAgentsSidebar);
   document.querySelectorAll(".sidebar-nav button").forEach(button => button.addEventListener("click", () => openSidebar(button.dataset.section)));
+  document.querySelectorAll("[data-workbench-tab]").forEach(button => button.addEventListener("click", () => { workbenchTab = button.dataset.workbenchTab; renderWorkbench(); }));
+  bindWorkbenchResize();
   document.getElementById("new-chat").addEventListener("click", () => {
     if (conversation.length) saveRecentChats([{ title: conversation.at(-1)?.content?.slice(0, 48) || "Nový chat", time: new Date().toLocaleString("cs-CZ"), messages: conversation }, ...recentChats()]);
     conversation = []; saveConversation(); messages.innerHTML = ""; addMessage("Nové lokální sezení připraveno.", "jarvis"); closeSidebar();
@@ -372,12 +562,15 @@ function addMessage(text, type) {
   item.textContent = text;
   messages.append(item);
   messages.scrollTop = messages.scrollHeight;
+  return item;
 }
 
 function addActivity(text) {
   const item = document.createElement("p");
   item.textContent = text;
   agentActivity.prepend(item);
+  workbenchActivity = [{ time: new Date().toLocaleTimeString("cs-CZ"), text }, ...workbenchActivity].slice(0, 80);
+  if (document.body.classList.contains("workbench-open") && workbenchTab === "live") renderWorkbench();
 }
 
 function setActivity(text, state = "") {
@@ -396,6 +589,7 @@ function speak(text) {
 
 function stopPlayback() {
   window.speechSynthesis?.cancel();
+  voiceQueue = [];
   if (voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; voiceAudio = null; }
 }
 
@@ -404,18 +598,46 @@ function stopCurrentRun() {
   activeRequest?.abort();
   activeRequest = null;
   stopButton.classList.remove("active");
-  controlPost("/voice/stop", {}).catch(() => {});
+  controlPost("/voice/stop", {}).then(state => {
+    wakeToggle.setAttribute("aria-pressed", String(state.enabled));
+    wakeToggle.textContent = "„HEY JARVIS“ AKTIVNÍ";
+    voiceState.textContent = "MIKROFON: LOKÁLNÍ WAKE-WORD";
+  }).catch(() => {});
   setActivity("TAH ZASTAVEN");
   addActivity("PŘERUŠENO UŽIVATELEM");
 }
 
 function playVoiceAudio(audioUrl, fallbackText) {
-  window.speechSynthesis?.cancel();
-  if (voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; }
-  if (!audioUrl) { speak(fallbackText); return; }
+  voiceQueue.push({ audioUrl, fallbackText });
+  playQueuedVoice();
+}
+
+function playQueuedVoice() {
+  if (voiceAudio || !voiceQueue.length) return;
+  const { audioUrl, fallbackText } = voiceQueue.shift();
+  if (!audioUrl) { speak(fallbackText); playQueuedVoice(); return; }
   voiceAudio = new Audio(`${audioUrl}?time=${Date.now()}`);
-  voiceAudio.addEventListener("error", () => speak(fallbackText), { once: true });
-  voiceAudio.play().catch(() => speak(fallbackText));
+  const finish = () => { voiceAudio = null; playQueuedVoice(); };
+  voiceAudio.addEventListener("ended", finish, { once: true });
+  voiceAudio.addEventListener("error", () => { speak(fallbackText); finish(); }, { once: true });
+  const outputId = localStorage.getItem("jarvis-audio-output") || "default";
+  const selectOutput = typeof voiceAudio.setSinkId === "function" && outputId !== "default"
+    ? voiceAudio.setSinkId(outputId).catch(() => {})
+    : Promise.resolve();
+  selectOutput.then(() => voiceAudio.play()).catch(() => { speak(fallbackText); finish(); });
+}
+
+async function audioOutputDevices() {
+  const fallback = [{ id: "default", name: "Výchozí zařízení Windows" }];
+  if (!navigator.mediaDevices?.enumerateDevices) return fallback;
+  try {
+    const allowed = /reproduktory|speakers|sluchátka|headphones|headset|hands-free/i;
+    const blocked = /mapper|steam|stereo|line|kabel|cable|primární|primary|virtual/i;
+    const outputs = (await navigator.mediaDevices.enumerateDevices())
+      .filter(device => device.kind === "audiooutput" && allowed.test(device.label) && !blocked.test(device.label))
+      .map((device, index) => ({ id: device.deviceId, name: device.label || `Zvukový výstup ${index + 1}` }));
+    return [...fallback, ...outputs.filter(device => device.id !== "default")];
+  } catch (_) { return fallback; }
 }
 
 async function getActiveAgent() {
@@ -437,35 +659,42 @@ function agentSystemPrompt(agent) {
   ].filter(Boolean).join("\n\n");
 }
 
+function selectSpecialistAgents(command, agents) {
+  const request = command.toLowerCase();
+  const has = pattern => pattern.test(request);
+  const byId = id => agents.find(agent => agent.id === id && agent.status === "ready");
+  if (has(/\b(web|internet|vyhledej|vyhledat|porovnej|výzkum|vyzkum|aktuální|aktualni|zdroj)\b/)) return [byId("research")].filter(Boolean);
+  if (has(/\b(soubor|složk|slozk|adresář|adresar|přejmenuj|prejmenuj|tř[ií]d|trid)\b/)) return [byId("files")].filter(Boolean);
+  if (has(/\b(powershell|automatiz|plánovač|planovac|spusť program|spust program|skript)\b/)) return [byId("automation")].filter(Boolean);
+  if (has(/\b(kód|kod|program|skript|debug|chyba|html|css|javascript|python|api|plugin|refaktor|test)\b/)) return [byId("developer")].filter(Boolean);
+  return [];
+}
+
 async function dispatchToAgents(command) {
   const match = command.match(/^(?:agenti|všichni agenti|vsichni agenti)\s*[:,-]\s*(.+)$/i);
-  if (!match) return false;
-  const task = match[1].trim();
   agentRegistry = await controlGet("/agents");
-  const agents = (agentRegistry.agents || []).filter(agent => agent.status === "ready");
+  const readyAgents = (agentRegistry.agents || []).filter(agent => agent.status === "ready");
+  const agents = match ? readyAgents : selectSpecialistAgents(command, readyAgents);
+  if (!match && !agents.length) return false;
+  const task = (match ? match[1] : command).trim();
   if (!agents.length) {
     addMessage(command, "user");
     addMessage("Pro souběžnou práci není připraven žádný agent.", "jarvis");
     return true;
   }
-  if (!window.confirm(`Spustit úkol paralelně pro ${agents.length} agentů?\n${task}`)) return true;
+  if (match && !window.confirm(`Spustit úkol paralelně pro ${agents.length} agentů?\n${task}`)) return true;
   addMessage(command, "user");
   const assignment = await controlPost("/agents/tasks", { task, agent_ids: agents.map(agent => agent.id) });
-  addActivity(`PARALELNÍ ÚKOL: ${agents.length} AGENTŮ`);
+  addActivity(match ? `PARALELNÍ ÚKOL: ${agents.length} AGENTŮ` : `JARVIS PŘEDAL ÚKOL: ${agents[0].name.toUpperCase()}`);
   await Promise.all(assignment.agents.map(async agent => {
     try {
-      const response = await fetch(`${api}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = agent.engine === "openclaw"
+        ? await controlPost("/agents/openclaw/run", { task })
+        : await controlPost("/chat", {
           model: agent.model || modelRouter.default,
           messages: [{ role: "system", content: agentSystemPrompt(agent) }, { role: "user", content: task }],
-          stream: false,
-        }),
-      });
-      if (!response.ok) throw new Error(`Server vrátil ${response.status}`);
-      const data = await response.json();
-      const answer = await captureProjectMemory(data.choices?.[0]?.message?.content || "Agent nevrátil odpověď.");
+        });
+      const answer = await captureProjectMemory(data.answer || "Agent nevrátil odpověď.");
       addMessage(`[${agent.name}]\n${answer}`, "jarvis");
       await controlPost("/agents/tasks/complete", { task_id: assignment.task_id, agent_id: agent.id, success: true, summary: answer });
     } catch (error) {
@@ -474,7 +703,7 @@ async function dispatchToAgents(command) {
     }
   }));
   agentRegistry = await controlGet("/agents");
-  addActivity("PARALELNÍ ÚKOL DOKONČEN");
+  addActivity(match ? "PARALELNÍ ÚKOL DOKONČEN" : "ÚKOL SPECIALISTY DOKONČEN");
   return true;
 }
 
@@ -504,6 +733,34 @@ async function sendCommand(text) {
   const command = text.trim();
   if (!command) return;
   await loadProjectMemory();
+  const powershellRequest = command.match(/^(?:(admin)\s+)?(?:powershell|pwsh)\s*:\s*([\s\S]+)$/i);
+  if (powershellRequest) {
+    const elevated = Boolean(powershellRequest[1]);
+    const script = powershellRequest[2].trim();
+    const prompt = elevated
+      ? "Spustit tento PowerShell jako správce? Windows zobrazí UAC potvrzení."
+      : "Spustit tento lokální PowerShell příkaz?";
+    if (!window.confirm(`${prompt}\n\n${script}`)) return;
+    addMessage(command, "user");
+    input.value = "";
+    setActivity(elevated ? "ČEKÁM NA UAC" : "SPOUŠTÍM POWERSHELL", "thinking");
+    try {
+      const result = await controlPost("/powershell/execute", {
+        command: script,
+        elevated,
+        confirmed: true,
+      });
+      const mode = elevated ? "ADMIN POWERSHELL" : "POWERSHELL";
+      const output = result.output || "Příkaz byl dokončen bez textového výstupu.";
+      addMessage(`${mode} · KÓD ${result.exit_code}\n${output}`, "jarvis");
+      addActivity(`${mode} DOKONČEN`);
+      setActivity("Připraven naslouchat");
+    } catch (error) {
+      addMessage(`PowerShell selhal: ${error.message}`, "jarvis");
+      setActivity("CHYBA POWERSHELLU");
+    }
+    return;
+  }
   if (/^(?:otevři|otevri|ukaž|ukaz) (?:panel|postranní panel|boční panel)$/i.test(command)) {
     openSidebar();
     addMessage(command, "user");
@@ -579,15 +836,11 @@ async function sendCommand(text) {
   stopButton.classList.add("active");
   addActivity(`AGENT ${activeAgent?.name || "JARVIS"} · MODEL ${selectedModel}: ${command.slice(0, 42)}`);
   try {
-    const response = await fetch(`${api}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: activeRequest.signal,
-      body: JSON.stringify({ model: activeAgent?.model || selectedModel, messages: [{ role: "system", content: agentSystemPrompt(activeAgent) }, ...conversation], stream: false })
-    });
-    if (!response.ok) throw new Error(`Server vrátil ${response.status}`);
-    const data = await response.json();
-    const answer = await captureProjectMemory(data.choices?.[0]?.message?.content || "Odpověď nebyla vrácena.");
+    const chatMessages = [{ role: "system", content: agentSystemPrompt(activeAgent) }, ...conversation];
+    let rawAnswer = "";
+    const data = await controlPost("/chat", { model: activeAgent?.model || selectedModel, messages: chatMessages });
+    rawAnswer = data.answer || "Model nevrátil odpověď.";
+    const answer = await captureProjectMemory(rawAnswer);
     addMessage(answer, "jarvis");
     conversation.push({ role: "assistant", content: answer });
     saveConversation();
@@ -603,120 +856,16 @@ async function sendCommand(text) {
   }
 }
 
-async function startRecording() {
-  if (!navigator.mediaDevices?.getUserMedia) { addMessage("Prohlížeč nepodporuje mikrofon.", "jarvis"); return; }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-    recorder.ondataavailable = event => audioChunks.push(event.data);
-    recorder.onstop = async () => {
-      stream.getTracks().forEach(track => track.stop());
-      setActivity("Přepisuji řeč", "thinking");
-      const formData = new FormData();
-      formData.append("file", new Blob(audioChunks, { type: "audio/webm" }), "hlas.webm");
-      formData.append("language", "cs");
-      try {
-        const response = await fetch(`${api}/v1/speech/transcribe`, { method: "POST", body: formData });
-        if (!response.ok) throw new Error(`Přepis selhal (${response.status})`);
-        const data = await response.json();
-        await sendCommand(data.text || "");
-      } catch (error) { addMessage(`Hlasový vstup: ${error.message}`, "jarvis"); setActivity("Připraven naslouchat"); }
-    };
-    recorder.start();
-    setActivity("NASLOUCHÁM — klikni znovu pro odeslání", "listening");
-  } catch (error) { addMessage(`Mikrofon není dostupný: ${error.message}`, "jarvis"); }
-}
-
-async function transcribe(blob) {
-  const formData = new FormData();
-  formData.append("file", blob, "hey-jarvis.webm");
-  formData.append("language", "cs");
-  const response = await fetch(`${api}/v1/speech/transcribe`, { method: "POST", body: formData });
-  if (!response.ok) throw new Error(`Přepis selhal (${response.status})`);
-  return (await response.json()).text || "";
-}
-
-async function startWakeListening() {
-  try {
-    wakeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    wakeEnabled = true;
+reactor.addEventListener("click", () => {
+  controlPost("/voice/listen", {}).then(() => {
     wakeToggle.setAttribute("aria-pressed", "true");
     wakeToggle.textContent = "„HEY JARVIS“ AKTIVNÍ";
-    voiceState.textContent = "MIKROFON: PRŮBĚŽNÝ POSLECH";
-    voiceMeter.style.width = "82%";
-    addActivity("WAKE-WORD AKTIVOVÁN");
-    setActivity("ČEKÁM NA „HEY JARVIS“", "listening");
-    recordWakeChunk();
-  } catch (error) {
-    addMessage(`Mikrofon je nutné povolit: ${error.message}`, "jarvis");
-  }
-}
-
-function stopWakeListening() {
-  wakeEnabled = false;
-  recorder?.stop();
-  wakeStream?.getTracks().forEach(track => track.stop());
-  wakeStream = null;
-  wakeToggle.setAttribute("aria-pressed", "false");
-  wakeToggle.textContent = "AKTIVOVAT „HEY JARVIS“";
-  voiceState.textContent = "MIKROFON: VYPNUT";
-  voiceMeter.style.width = "10%";
-  setActivity("Připraven naslouchat");
-}
-
-function recordWakeChunk() {
-  if (!wakeEnabled || !wakeStream) return;
-  const chunkRecorder = new MediaRecorder(wakeStream, { mimeType: "audio/webm" });
-  const chunks = [];
-  chunkRecorder.ondataavailable = event => chunks.push(event.data);
-  chunkRecorder.onstop = async () => {
-    if (!wakeEnabled) return;
-    try {
-      const heard = await transcribe(new Blob(chunks, { type: "audio/webm" }));
-      const match = heard.match(/(?:\b(?:hej|hey)\s+jarvis|\bjarvis)\b[,.!]?\s*(.*)/i);
-      if (match) {
-        // Barge-in: jméno přeruší čtení a rozpracovanou odpověď okamžitě po lokálním rozpoznání.
-        stopPlayback();
-        activeRequest?.abort();
-        const command = match[1].trim();
-        addActivity("AKTIVAČNÍ SLOVO ROZPOZNÁNO");
-        setActivity("JARVIS AKTIVOVÁN", "thinking");
-        if (command) await sendCommand(command);
-        else await recordFollowUpCommand();
-      }
-    } catch (error) { console.warn("Wake-word transcription failed", error); }
-    if (wakeEnabled) recordWakeChunk();
-  };
-  chunkRecorder.start();
-  setTimeout(() => { if (chunkRecorder.state === "recording") chunkRecorder.stop(); }, 1200);
-}
-
-function recordFollowUpCommand() {
-  return new Promise(resolve => {
-    if (!wakeEnabled || !wakeStream) { resolve(); return; }
-    const commandRecorder = new MediaRecorder(wakeStream, { mimeType: "audio/webm" });
-    const chunks = [];
-    commandRecorder.ondataavailable = event => chunks.push(event.data);
-    commandRecorder.onstop = async () => {
-      try {
-        setActivity("Přepisuji příkaz", "thinking");
-        const command = await transcribe(new Blob(chunks, { type: "audio/webm" }));
-        if (command.trim()) await sendCommand(command);
-        else setActivity("ČEKÁM NA „HEY JARVIS“", "listening");
-      } catch (error) {
-        addMessage(`Hlasový příkaz nebyl rozpoznán: ${error.message}`, "jarvis");
-      }
-      resolve();
-    };
-    addMessage("Naslouchám příkazu.", "jarvis");
-    commandRecorder.start();
-    setActivity("NASLOUCHÁM PŘÍKAZU", "listening");
-    setTimeout(() => { if (commandRecorder.state === "recording") commandRecorder.stop(); }, 7000);
-  });
-}
-
-reactor.addEventListener("click", () => recorder?.state === "recording" ? recorder.stop() : startRecording());
+    voiceState.textContent = "MIKROFON: LOKÁLNÍ WAKE-WORD";
+    voiceMeter.style.width = "8%";
+    setActivity("NASLOUCHÁM RUČNÍMU PŘÍKAZU", "listening");
+    addActivity("RUČNÍ HLASOVÝ VSTUP AKTIVOVÁN");
+  }).catch(error => addMessage(`Hlasový modul: ${error.message}`, "jarvis"));
+});
 form.addEventListener("submit", event => { event.preventDefault(); sendCommand(input.value); });
 wakeToggle.addEventListener("click", () => {
   const enabled = wakeToggle.getAttribute("aria-pressed") !== "true";
@@ -724,7 +873,7 @@ wakeToggle.addEventListener("click", () => {
     wakeToggle.setAttribute("aria-pressed", String(state.enabled));
     wakeToggle.textContent = state.enabled ? "„HEY JARVIS“ AKTIVNÍ" : "„HEY JARVIS“ NEAKTIVNÍ";
     voiceState.textContent = state.enabled ? "MIKROFON: LOKÁLNÍ WAKE-WORD" : "MIKROFON: VYPNUT";
-    voiceMeter.style.width = state.enabled ? "100%" : "10%";
+    voiceMeter.style.width = state.enabled ? "8%" : "0%";
     if (!state.enabled) stopPlayback();
   }).catch(error => addMessage(`Hlasový přepínač: ${error.message}`, "jarvis"));
 });
@@ -737,9 +886,14 @@ muteButton.addEventListener("click", () => {
 });
 stopButton.addEventListener("click", stopCurrentRun);
 document.addEventListener("keydown", event => {
-  if (event.key === "Escape") stopCurrentRun();
-  if (event.key.toLowerCase() === "b") { document.body.className = "booting"; setTimeout(() => { document.body.className = "booted"; }, 30); }
-  if (event.code === "Space" && document.activeElement !== input) { event.preventDefault(); reactor.click(); }
+  if (event.key === "F8") {
+    event.preventDefault();
+    stopCurrentRun();
+  }
+  if (event.key === "F9") {
+    event.preventDefault();
+    reactor.click();
+  }
 });
 async function refreshHealth() {
   try {
@@ -841,30 +995,64 @@ async function pollVoiceEvents() {
       wakeToggle.setAttribute("aria-pressed", "true");
       wakeToggle.textContent = "„HEY JARVIS“ AKTIVNÍ";
       voiceState.textContent = "MIKROFON: LOKÁLNÍ WAKE-WORD";
-      voiceMeter.style.width = "100%";
+      voiceMeter.style.width = "8%";
       addActivity("OPENWAKEWORD PŘIPRAVEN");
+    } else if (event.type === "voice_mode") {
+      voiceState.textContent = event.provider === "gemini_live" ? "MIKROFON: GEMINI LIVE" : "MIKROFON: LOKÁLNÍ ZÁLOHA";
+      addActivity(event.text);
     } else if (event.type === "wake_detected") {
       stopPlayback();
       activeRequest?.abort();
       setActivity("HEY JARVIS ROZPOZNÁN", "listening");
       addActivity("AKTIVAČNÍ SLOVO ROZPOZNÁNO");
     } else if (event.type === "voice_command") {
+      activeVoiceMessage = null;
       addMessage(event.text, "user");
       setActivity("ZPRACOVÁVÁM HLASOVÝ PŘÍKAZ", "thinking");
+    } else if (event.type === "voice_sentence") {
+      if (!activeVoiceMessage) activeVoiceMessage = addMessage("", "jarvis");
+      activeVoiceMessage.textContent = `${activeVoiceMessage.textContent}${event.text}`.trim();
+      messages.scrollTop = messages.scrollHeight;
+      playVoiceAudio(event.audio_url, event.text);
+      setActivity("JARVIS MLUVÍ", "listening");
+    } else if (event.type === "voice_complete") {
+      if (activeVoiceMessage) activeVoiceMessage.textContent = event.text;
+      else addMessage(event.text, "jarvis");
+      activeVoiceMessage = null;
+      setActivity("ČEKÁM NA HEY JARVIS", "listening");
+      addActivity("HLASOVÁ ODPOVĚĎ DOKONČENA");
     } else if (event.type === "voice_answer") {
+      activeVoiceMessage = null;
       addMessage(event.text, "jarvis");
       playVoiceAudio(event.audio_url, event.text);
       setActivity("ČEKÁM NA HEY JARVIS", "listening");
       addActivity("HLASOVÁ ODPOVĎ DOKONČENA");
+    } else if (event.type === "voice_stop") {
+      activeVoiceMessage = null;
+      stopPlayback();
+      activeRequest?.abort();
+      setActivity("HLASOVÝ ÚKOL ZASTAVEN");
+      addActivity("PŘERUŠENO HLASOVÝM POVELEM");
     } else if (event.type === "error") {
+      activeVoiceMessage = null;
       addMessage(event.text, "jarvis");
       setActivity("CHYBA HLASOVÉHO MODULU");
     }
   } catch (_) { /* Hlasový klient se může právě spouštět. */ }
 }
+async function pollVoiceMeter() {
+  try {
+    const meter = await controlGet("/voice/meter");
+    const level = Number(meter.level || 0);
+    const percent = Math.max(4, Math.min(100, Math.round((level - 250) / 8)));
+    voiceMeter.style.width = `${percent}%`;
+  } catch (_) { /* Hlasový klient se může právě spouštět. */ }
+}
+
 setInterval(() => { document.getElementById("clock").textContent = new Date().toLocaleTimeString("cs-CZ"); }, 1000);
 setInterval(refreshHealth, 15000);
 setInterval(pollVoiceEvents, 500);
+setInterval(pollVoiceMeter, 200);
 setInterval(refreshHardware, 2000);
 installFilmHud();
 setTimeout(() => { document.body.className = "booted"; refreshHealth(); refreshHardware(); loadRules(); loadProjectMemory(); }, 90);
@@ -876,6 +1064,7 @@ function setHudView(view) {
   if (view !== "chat") {
     closeSidebar();
     closeAgentsSidebar();
+    closeWorkbench();
   }
   document.body.dataset.view = view;
   localStorage.setItem("jarvis-hud-view", view);
@@ -907,7 +1096,7 @@ function setHudView(view) {
     panels.filter(panel => !panel.classList.contains("views-panel"))
       .forEach(panel => panel.style.setProperty("display", "none", "important"));
   }
-  document.querySelectorAll(".view-button").forEach(button => {
+  document.querySelectorAll(".view-button[data-view]").forEach(button => {
     const active = button.dataset.view === view;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
@@ -915,7 +1104,7 @@ function setHudView(view) {
   addActivity(view === "system" ? "PŘEPNUTO NA SYSTÉMOVÝ POHLED" : "PŘEPNUTO NA KONVERZACI");
 }
 
-document.querySelectorAll(".view-button").forEach(button => {
+document.querySelectorAll(".view-button[data-view]").forEach(button => {
   button.addEventListener("click", () => setHudView(button.dataset.view));
 });
 setHudView("chat");

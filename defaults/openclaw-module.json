@@ -1,0 +1,20 @@
+{
+  "id": "openclaw",
+  "state": "planned",
+  "install_mode": "manual_confirmation_required",
+  "workspace": "runtime/agents/openclaw",
+  "network": "on_request",
+  "system_actions": "approval_required",
+  "model_provider": "ollama",
+  "required_checks": [
+    "Node.js dostupný",
+    "Ollama dostupná",
+    "Volné místo alespoň 10 GB",
+    "Potvrzení uživatele před instalací"
+  ],
+  "blocked_actions": [
+    "Automatická instalace",
+    "Automatický přístup k účtům",
+    "Automatické systémové změny"
+  ]
+}

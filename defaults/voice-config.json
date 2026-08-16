@@ -1,7 +1,17 @@
 {
   "sample_rate": 16000,
-  "wake_threshold": 0.55,
-  "command_seconds": 8,
-  "language": "cs",
-  "model": "qwen3.5:2b"
+  "input_device": "Trust GXT 232",
+  "wake_threshold": 0.30,
+  "always_listening": true,
+  "gemini_live_preferred": false,
+  "gemini_live_retry_seconds": 300,
+  "auto_transcription_confidence": 0.55,
+  "command_seconds": 12,
+  "min_command_seconds": 0.8,
+  "speech_start_seconds": 4.0,
+  "max_command_seconds": 12,
+  "silence_seconds": 1.1,
+  "speech_threshold": 650,
+  "language": "auto",
+  "model": "qwen3.5:4b"
 }

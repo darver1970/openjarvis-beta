@@ -1,10 +1,11 @@
 {
-  "default_model": "qwen3.5:2b",
+  "default_model": "qwen3.5:4b",
   "voice_output": true,
   "wake_word": true,
   "start_with_windows": false,
   "borderless_window": true,
   "internet_mode": "on_request",
+  "ai_provider": "local",
   "project_start_required": true,
   "cloud_api": false,
   "open_source_only": true

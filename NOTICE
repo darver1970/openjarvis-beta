@@ -1,0 +1,23 @@
+OpenJarvis Beta HUD v0.5
+Copyright 2026 contributors to OpenJarvis Beta HUD.
+
+This product includes or integrates with OpenJarvis:
+Copyright 2025 The OpenJarvis Authors.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/open-jarvis/OpenJarvis
+
+The installer retrieves optional independent components from their publishers:
+- Ollama, MIT License: https://github.com/ollama/ollama
+- OpenClaw, MIT License: https://github.com/openclaw/openclaw
+- openWakeWord, Apache License 2.0: https://github.com/dscripka/openWakeWord
+- faster-whisper, MIT License: https://github.com/SYSTRAN/faster-whisper
+- Piper, GPL-3.0-or-later: https://github.com/rhasspy/piper
+- python-sounddevice, MIT License: https://github.com/spatialaudio/python-sounddevice
+- SoundFile, BSD 3-Clause License: https://github.com/bastibe/python-soundfile
+- websockets, BSD 3-Clause License: https://github.com/python-websockets/websockets
+- pywebview, BSD 3-Clause License: https://github.com/r0x0r/pywebview
+- PyInstaller, GPLv2-or-later with its distribution exception: https://pyinstaller.org/
+- LibreHardwareMonitor, MPL-2.0: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+Gemini API and OpenRouter are optional remote services. Their terms, quotas,
+and processing conditions are governed by their respective providers.

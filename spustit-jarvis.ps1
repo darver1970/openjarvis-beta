@@ -60,6 +60,14 @@ if (-not (Test-Port 8126)) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_control.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
+# Každé spuštění hlavního launcheru obnoví lokální wake-word mikrofon.
+try {
+    $voicePayload = @{ enabled = $true } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Uri "http://127.0.0.1:8126/voice/state" -Method Post -ContentType "application/json" -Body $voicePayload -TimeoutSec 5 | Out-Null
+} catch {
+    Write-Warning "Hlasový modul se nepodařilo při startu aktivovat: $($_.Exception.Message)"
+}
+
 # Samostatný lokální klient reaguje na „Hey Jarvis“ i když HUD právě čte odpověď.
 $voiceProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {

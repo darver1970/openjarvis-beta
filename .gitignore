@@ -19,3 +19,4 @@ c-drive-large-files.*
 hud/hardware-status.json
 hud/network-status.json
 hud/voice-event.json
+version-check.json

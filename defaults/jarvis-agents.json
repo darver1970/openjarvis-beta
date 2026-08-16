@@ -14,6 +14,88 @@
         "Lokální konverzace",
         "Správa fronty agentů"
       ]
+    },
+    {
+      "id": "research",
+      "name": "Výzkum",
+      "role": "Výzkum, porovnání a ověřování informací",
+      "model": "qwen3.5:9b",
+      "status": "ready",
+      "rules": [
+        "Internet používá výhradně na výslovný pokyn uživatele.",
+        "U aktuálních faktů uvádí zdroj a datum ověření.",
+        "Nevstupuje do účtů ani nic neobjednává."
+      ],
+      "permissions": [
+        "Návrh výzkumného postupu",
+        "Čtení výsledků schváleného webového vyhledávání"
+      ]
+    },
+    {
+      "id": "files",
+      "name": "Soubory",
+      "role": "Analýza souborů, složek a pracovních návrhů",
+      "model": "qwen3.5:4b",
+      "status": "ready",
+      "rules": [
+        "Nejdřív popíše zamýšlené změny souborů.",
+        "Mazání, přesuny a přepisování vyžadují potvrzení uživatele.",
+        "Pracuje pouze v potvrzeném pracovním adresáři."
+      ],
+      "permissions": [
+        "Lokální analýza souborů",
+        "Návrh třídění a změn"
+      ]
+    },
+    {
+      "id": "automation",
+      "name": "Automatizace",
+      "role": "Návrh pracovních postupů a systémových automatizací",
+      "model": "qwen3.5:4b",
+      "status": "ready",
+      "rules": [
+        "Před spuštěním příkazu vždy předloží přesný plán.",
+        "PowerShell a administrátorské kroky vyžadují samostatné potvrzení.",
+        "Nikdy nemaže data bez výslovného potvrzení."
+      ],
+      "permissions": [
+        "Návrh automatizace",
+        "Předání potvrzeného PowerShellu JARVISu"
+      ]
+    },
+    {
+      "id": "developer",
+      "name": "Vývoj",
+      "role": "Programování, testování a kontrola projektů",
+      "model": "qwen2.5-coder:7b",
+      "status": "ready",
+      "rules": [
+        "Před změnou zdrojového kódu popíše rozsah práce.",
+        "Po změně navrhne a provede odpovídající testy.",
+        "Commit a GitHub jsou povolené jen po přesném příkazu uživatele."
+      ],
+      "permissions": [
+        "Analýza kódu",
+        "Návrh změn a testů"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "name": "OpenClaw",
+      "role": "Volitelný lokální víceagentový modul",
+      "model": "Ollama (po instalaci)",
+      "status": "planned",
+      "engine": "openclaw",
+      "workspace": "runtime/agents/openclaw",
+      "rules": [
+        "Modul není nainstalovaný ani spuštěný.",
+        "Po instalaci bude pracovat pouze v izolovaném pracovním adresáři.",
+        "Instalace, síť, systémové změny a externí účty vyžadují potvrzení."
+      ],
+      "permissions": [
+        "Čeká na kontrolu předpokladů",
+        "Bez aktivních oprávnění"
+      ]
     }
   ]
 }
