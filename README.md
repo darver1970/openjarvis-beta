@@ -12,17 +12,60 @@ Základní serverový projekt je [OpenJarvis](https://github.com/open-jarvis/Ope
 - trvalá pravidla, projekty, nastavení připojení a síťový monitoring,
 - lokální OpenJarvis backend.
 
-## Spuštění
-
-V PowerShellu spusťte:
-
-```powershell
-& '<zvolená-složka>\spustit-jarvis.ps1'
-```
-
 ## Čistá instalace
 
-Po stažení repozitáře spusťte `install.ps1`. Skript se zeptá na cílovou složku, ověří alespoň 12 GB volného místa a nainstaluje bezplatné závislosti do zvoleného umístění. Vyžaduje Windows, internet a Git; model `qwen3.5:2b` lze přeskočit parametrem `-SkipModel`.
+### Požadavky
+
+- Windows 10 (1809) nebo novější ve 64bitové verzi,
+- připojení k internetu během instalace,
+- alespoň 12 GB volného místa na vybraném disku; více místa je vhodné pro další modely,
+- Git pro Windows. Pokud jej v systému nemáte, instalátor se jej pokusí nainstalovat přes `winget`.
+
+### Postup
+
+1. Na stránce repozitáře klikněte na **Code → Download ZIP** a archiv rozbalte, nebo repozitář naklonujte:
+
+   ```powershell
+   git clone https://github.com/darver1970/openjarvis-beta.git
+   cd openjarvis-beta
+   ```
+
+2. Ve složce projektu otevřete PowerShell a spusťte instalátor:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+
+3. Instalátor se zeptá na cílovou složku. Zadejte vlastní cestu, například `D:\Aplikace\OpenJarvis`. Do této složky uloží backend, modely, konfiguraci, cache, telemetrii a lokální data.
+
+4. Vyčkejte na dokončení. Při prvním běhu se stahuje bezplatný lokální model `qwen3.5:2b`, proto instalace může trvat déle a vyžaduje několik GB dat.
+
+5. Na ploše vznikne zástupce **JARVIS Beta**. Dvojklikem jej spusťte. Alternativně spusťte:
+
+   ```powershell
+   & 'D:\Aplikace\OpenJarvis\spustit-jarvis.ps1'
+   ```
+
+### Volitelné parametry
+
+```powershell
+# Instalace bez stažení modelu; stáhněte jej později příkazem ollama pull qwen3.5:2b
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -SkipModel
+
+# Instalace bez hlasového modulu
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -SkipVoice
+
+# Zadání cílové složky bez dotazu
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath 'D:\Aplikace\OpenJarvis'
+```
+
+### Řešení problémů
+
+- **Málo místa na disku:** zvolte jiný disk nebo použijte `-SkipModel`.
+- **Chybí Git:** nainstalujte Git pro Windows, otevřete nový PowerShell a spusťte instalátor znovu.
+- **Model se nestáhl:** otevřete nový PowerShell, nastavte se do instalační složky a spusťte `ollama pull qwen3.5:2b`.
+- **HUD se neotevře:** spusťte `spustit-jarvis.ps1` přímo z instalační složky a zkontrolujte, zda antivirus nebo firewall neblokuje místní porty `8000`, `5173`, `8123` a `11434`.
+- **Hlas nefunguje:** povolte mikrofon pro desktopové aplikace v Nastavení Windows a spusťte instalátor znovu bez `-SkipVoice`.
 
 ## Veřejný obsah
 
