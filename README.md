@@ -1,6 +1,6 @@
 # OpenJarvis Beta HUD
 
-Lokální beta rozhraní JARVIS pro Windows. Běží z `A:\projekty\OpenJarvis`, používá lokální Ollama modely a nevyžaduje placené API tokeny.
+Lokální beta rozhraní JARVIS pro Windows. Běží ze složky zvolené při instalaci, používá lokální Ollama modely a nevyžaduje placené API tokeny.
 
 Základní serverový projekt je [OpenJarvis](https://github.com/open-jarvis/OpenJarvis). Tento repozitář obsahuje beta nadstavbu HUDu, lokálního hlasu, telemetrie, pravidel a spouštění ve Windows.
 
@@ -17,7 +17,7 @@ Základní serverový projekt je [OpenJarvis](https://github.com/open-jarvis/Ope
 V PowerShellu spusťte:
 
 ```powershell
-& 'A:\projekty\OpenJarvis\spustit-jarvis.ps1'
+& '<zvolená-složka>\spustit-jarvis.ps1'
 ```
 
 ## Čistá instalace
