@@ -1,0 +1,20 @@
+# Lokální běh, modely, cache a soukromá data se nikdy nezveřejňují.
+runtime/
+desktop/
+*.db
+*.db-*
+*.log
+*.wav
+*.exe
+*.zip
+*.pyc
+__pycache__/
+src/.venv/
+.venv/
+config.toml
+anon_id
+first_chat_sent
+c-drive-large-files.*
+hud/hardware-status.json
+hud/network-status.json
+hud/voice-event.json

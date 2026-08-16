@@ -1,0 +1,9 @@
+{
+  "name": "J.A.R.V.I.S. Lokální HUD",
+  "short_name": "JARVIS",
+  "start_url": "/?hud_version=18",
+  "display": "standalone",
+  "background_color": "#050b14",
+  "theme_color": "#00d9ff",
+  "description": "Lokální hlasový asistent s HUD rozhraním."
+}
