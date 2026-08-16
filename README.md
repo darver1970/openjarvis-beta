@@ -14,6 +14,19 @@ Základní serverový projekt je [OpenJarvis](https://github.com/open-jarvis/Ope
 
 ## Čistá instalace
 
+### Nejjednodušší postup
+
+1. Na této stránce klikněte na zelené tlačítko **Code → Download ZIP**.
+2. Stažený ZIP soubor rozbalte do libovolné dočasné složky.
+3. V rozbalené složce klikněte pravým tlačítkem na soubor `install.ps1`.
+4. Zvolte **Spustit v PowerShellu**.
+5. Do otevřeného okna zadejte cílovou instalační složku, například `D:\Aplikace\OpenJarvis`, a vyčkejte na dokončení.
+6. Po instalaci spusťte zástupce **JARVIS Beta** na ploše.
+
+Pokud Windows zobrazí bezpečnostní upozornění na soubor stažený z internetu, otevřete **Vlastnosti** souboru `install.ps1`, zaškrtněte **Odblokovat**, potvrďte tlačítkem **Použít** a znovu vyberte **Spustit v PowerShellu**.
+
+### Podrobný postup
+
 ### Požadavky
 
 - Windows 10 (1809) nebo novější ve 64bitové verzi,
@@ -21,7 +34,7 @@ Základní serverový projekt je [OpenJarvis](https://github.com/open-jarvis/Ope
 - alespoň 12 GB volného místa na vybraném disku; více místa je vhodné pro další modely,
 - Git pro Windows. Pokud jej v systému nemáte, instalátor se jej pokusí nainstalovat přes `winget`.
 
-### Postup
+### Postup přes příkazový řádek
 
 1. Na stránce repozitáře klikněte na **Code → Download ZIP** a archiv rozbalte, nebo repozitář naklonujte:
 
