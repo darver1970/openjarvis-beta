@@ -21,6 +21,7 @@ RULES_PATH = ROOT / "runtime" / "jarvis-rules.json"
 SETTINGS_PATH = ROOT / "runtime" / "jarvis-settings.json"
 CLOUD_SECRETS_PATH = ROOT / "runtime" / "cloud-api-secrets.json"
 PROVIDER_HEALTH_PATH = ROOT / "runtime" / "provider-health.json"
+ACTIVE_PROVIDER_PATH = ROOT / "runtime" / "active-provider.json"
 OPENCLAW_ROOT = ROOT / "runtime" / "openclaw"
 OPENCLAW_BINARY = OPENCLAW_ROOT / "node_modules" / ".bin" / "openclaw.cmd"
 OPENCLAW_ENTRYPOINT = OPENCLAW_ROOT / "node_modules" / "openclaw" / "openclaw.mjs"
@@ -160,6 +161,27 @@ def provider_status() -> dict[str, Any]:
         {"id": provider_id, "label": details["label"], "model": details["model"], "configured": provider_id in {"local", "automatic"} or provider_id in secrets}
         for provider_id, details in PROVIDERS.items()
     ]}
+
+
+def active_provider_status() -> dict[str, str]:
+    """Načte posledního úspěšného poskytovatele bez historie dotazů a klíčů."""
+    data = load_document(ACTIVE_PROVIDER_PATH, "provider")
+    provider = str(data.get("provider", ""))
+    if provider not in PROVIDERS or provider == "automatic":
+        return {}
+    return {
+        "last_provider": provider,
+        "last_provider_at": str(data.get("updated_at", "")),
+    }
+
+
+def record_active_provider(provider: str) -> None:
+    """Uloží pouze identifikátor zdroje poslední úspěšné odpovědi."""
+    if provider in PROVIDERS and provider != "automatic":
+        save_document(ACTIVE_PROVIDER_PATH, {
+            "provider": provider,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        })
 
 
 def automatic_provider_order() -> list[str]:
@@ -584,6 +606,7 @@ class Handler(BaseHTTPRequestHandler):
             settings = load_document(SETTINGS_PATH, "settings")
             settings["ai_provider"] = normalize_provider(settings.get("ai_provider", "local"))
             settings["start_with_windows"] = startup_is_enabled()
+            settings.update(active_provider_status())
             self.send_json(settings)
         elif self.path == "/providers":
             self.send_json(provider_status())
@@ -700,6 +723,7 @@ class Handler(BaseHTTPRequestHandler):
                     selected_provider = provider
                     answer = provider_request(selected_provider, messages, str(data.get("model", "")))
                     fallbacks = []
+                record_active_provider(selected_provider)
                 self.send_json({"provider": selected_provider, "answer": answer, "fallbacks": fallbacks})
                 return
             if self.path == "/projects":

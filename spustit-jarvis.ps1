@@ -55,8 +55,20 @@ if (-not $telemetryProcess) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\hardware_monitor.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
-# Trvalá pravidla jsou obsloužena lokálním API na loopbacku.
-if (-not (Test-Port 8126)) {
+# Trvalá pravidla a stav poskytovatele obsluhuje lokální API na loopbacku.
+# Při novějším zdroji se restartuje pouze tato vlastní služba, aby HUD nikdy
+# nezůstal připojený ke staré kopii backendu.
+$controlProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Name -eq "python.exe" -and
+        $_.CommandLine -like "*$root*" -and
+        $_.CommandLine -like "*jarvis_control.py*"
+    }
+# Služba je lehká a restart při hlavním spuštění zaručí aktuální zdroj i po
+# instalaci aktualizace, bez závislosti na nespolehlivém čase procesu z WMI.
+if (-not (Test-Port 8126) -or $controlProcesses) {
+    $controlProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 400
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_control.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 

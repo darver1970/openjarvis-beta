@@ -12,10 +12,11 @@ const providerModels = {
   local: "QWEN 3.5 4B",
   gemini_free: "GEMINI 3.5 FLASH",
   openrouter_free: "OPENROUTER FREE",
-  automatic: "GEMINI -> OPENROUTER -> LOKÁLNÍ"
+  automatic: "GEMINI 3.5 FLASH · PRVNÍ VOLBA"
 };
 let configuredProvider = "local";
 let activeProvider = null;
+let lastProviderAt = "";
 const reactor = document.getElementById("reactor");
 const activity = document.getElementById("activity");
 const messages = document.getElementById("messages");
@@ -66,7 +67,7 @@ function saveConversation() {
 function installFilmHud() {
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `/film-hud.css?version=33`;
+  link.href = `/film-hud.css?version=34`;
   document.head.append(link);
   const core = document.querySelector(".core-panel");
   if (core && !core.querySelector(".arc-label")) {
@@ -848,12 +849,17 @@ async function sendCommand(text) {
   input.value = "";
   activeRequest = new AbortController();
   stopButton.classList.add("active");
-  addActivity(`AGENT ${activeAgent?.name || "JARVIS"} · MODEL ${selectedModel}: ${command.slice(0, 42)}`);
+  updateProviderIndicators();
+  const requestedMode = configuredProvider === "automatic"
+    ? "AUTOMATICKY · PRVNÍ GEMINI FREE"
+    : providerLabels[configuredProvider] || configuredProvider.toUpperCase();
+  addActivity(`AGENT ${activeAgent?.name || "JARVIS"} · ${requestedMode}: ${command.slice(0, 42)}`);
   try {
     const chatMessages = [{ role: "system", content: agentSystemPrompt(activeAgent) }, ...conversation];
     let rawAnswer = "";
     const data = await controlPost("/chat", { model: activeAgent?.model || selectedModel, messages: chatMessages });
     activeProvider = data.provider || configuredProvider;
+    lastProviderAt = new Date().toISOString();
     updateProviderIndicators();
     const fallbacks = Array.isArray(data.fallbacks) ? data.fallbacks : [];
     if (fallbacks.length) {
@@ -923,6 +929,8 @@ async function refreshHealth() {
   try {
     const settings = await controlGet("/settings");
     configuredProvider = settings.ai_provider || "local";
+    activeProvider = settings.last_provider || activeProvider;
+    lastProviderAt = settings.last_provider_at || lastProviderAt;
     updateProviderIndicators();
     const speech = await fetch(`${api}/v1/speech/health`).then(response => response.json());
     document.getElementById("speech-state").textContent = speech.available ? "ONLINE" : "CHYBA";
@@ -937,12 +945,17 @@ async function refreshHealth() {
 
 function updateProviderIndicators() {
   const configuredLabel = providerLabels[configuredProvider] || configuredProvider.toUpperCase();
-  const effectiveProvider = activeProvider || configuredProvider;
+  const effectiveProvider = activeProvider || (configuredProvider === "automatic" ? "gemini_free" : configuredProvider);
   const effectiveLabel = providerLabels[effectiveProvider] || effectiveProvider.toUpperCase();
   const model = providerModels[effectiveProvider] || "OVĚŘUJI…";
   const online = effectiveProvider === "gemini_free" || effectiveProvider === "openrouter_free" || configuredProvider === "automatic";
-  const modeText = configuredProvider === "automatic" && activeProvider
-    ? `AUTOMATICKY · ${effectiveLabel}`
+  const isProcessing = Boolean(activeRequest);
+  const modeText = configuredProvider === "automatic"
+    ? isProcessing
+      ? `AUTOMATICKY · ZKOUŠÍ ${effectiveLabel}`
+      : activeProvider
+        ? `AUTOMATICKY · POSLEDNÍ ${effectiveLabel}`
+        : "AUTOMATICKY · PŘIPRAVEN GEMINI FREE"
     : configuredLabel;
   const credentialsText = online ? "KLÍČ OVĚŘEN" : "NEPOUŽÍVÁ SE";
   document.getElementById("active-model")?.replaceChildren(document.createTextNode(model));
@@ -951,7 +964,11 @@ function updateProviderIndicators() {
   const sidebarState = document.getElementById("sidebar-provider-state");
   if (sidebarState) {
     sidebarState.textContent = configuredProvider === "automatic"
-      ? `AUTOMATICKY · AKTUÁLNĚ ${effectiveLabel}`
+      ? isProcessing
+        ? `AUTOMATICKY · ZKOUŠÍ ${effectiveLabel}`
+        : activeProvider
+          ? `AUTOMATICKY · POSLEDNÍ ODPOVĚĎ ${effectiveLabel}`
+          : "AUTOMATICKY · PŘIPRAVEN GEMINI FREE"
       : `REŽIM: ${effectiveLabel}`;
   }
 }
@@ -1105,7 +1122,9 @@ setInterval(refreshHardware, 2000);
 installFilmHud();
 setTimeout(() => { document.body.className = "booted"; refreshHealth(); refreshHardware(); loadRules(); loadProjectMemory(); }, 90);
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    registrations.forEach(registration => registration.unregister());
+  }).catch(() => {});
 }
 
 function setHudView(view) {
