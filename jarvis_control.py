@@ -189,18 +189,27 @@ def record_provider_health(provider: str, succeeded: bool, started_at: datetime)
     save_document(PROVIDER_HEALTH_PATH, document)
 
 
-def automatic_provider_request(messages: list[dict[str, object]], model: str = "") -> tuple[str, str]:
-    """Použije bezplatný online zdroj a při vyčerpání či chybě přejde na lokální model."""
+def automatic_provider_request(
+    messages: list[dict[str, object]], model: str = "",
+) -> tuple[str, str, list[dict[str, str]]]:
+    """Použije online zdroje a vrátí bezpečný přehled případných přepnutí."""
+    fallbacks: list[dict[str, str]] = []
     for provider in automatic_provider_order():
         started_at = datetime.now()
         try:
             answer = provider_request(provider, messages, model)
             record_provider_health(provider, True, started_at)
-            return provider, answer
+            return provider, answer, fallbacks
         except ValueError as error:
             record_provider_health(provider, False, started_at)
             logging.warning("Automatický provider %s selhal, zkouším další: %s", provider, error)
-    return "local", local_model_request(messages, model)
+            fallbacks.append({"provider": provider, "reason": str(error)[:240]})
+    try:
+        return "local", local_model_request(messages, model), fallbacks
+    except ValueError as error:
+        logging.warning("Automatický provider local selhal: %s", error)
+        fallbacks.append({"provider": "local", "reason": str(error)[:240]})
+        raise ValueError("Automatický režim nemohl získat odpověď z online ani lokálního modelu.") from error
 
 
 def local_model_request(messages: list[dict[str, object]], model: str) -> str:
@@ -686,11 +695,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(messages, list):
                     raise ValueError("Zprávy pro online model mají neplatný formát.")
                 if provider == "automatic":
-                    selected_provider, answer = automatic_provider_request(messages, str(data.get("model", "")))
+                    selected_provider, answer, fallbacks = automatic_provider_request(messages, str(data.get("model", "")))
                 else:
                     selected_provider = provider
                     answer = provider_request(selected_provider, messages, str(data.get("model", "")))
-                self.send_json({"provider": selected_provider, "answer": answer})
+                    fallbacks = []
+                self.send_json({"provider": selected_provider, "answer": answer, "fallbacks": fallbacks})
                 return
             if self.path == "/projects":
                 name = str(data.get("name", "")).strip()

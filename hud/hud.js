@@ -2,6 +2,20 @@
 
 const api = "http://127.0.0.1:8000";
 const controlApi = "http://127.0.0.1:8126";
+const providerLabels = {
+  local: "LOKÁLNÍ OLLAMA",
+  gemini_free: "GEMINI FREE",
+  openrouter_free: "OPENROUTER FREE",
+  automatic: "AUTOMATICKY"
+};
+const providerModels = {
+  local: "QWEN 3.5 4B",
+  gemini_free: "GEMINI 3.5 FLASH",
+  openrouter_free: "OPENROUTER FREE",
+  automatic: "GEMINI -> OPENROUTER -> LOKÁLNÍ"
+};
+let configuredProvider = "local";
+let activeProvider = null;
 const reactor = document.getElementById("reactor");
 const activity = document.getElementById("activity");
 const messages = document.getElementById("messages");
@@ -514,7 +528,7 @@ async function renderAgentCatalog() {
 function installSidebar() {
   if (document.getElementById("sidebar")) return;
   document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="agents-sidebar-toggle" class="agents-sidebar-toggle view-button" type="button" aria-label="Otevřít levý panel agentů" aria-expanded="false">AGENTI</button><button id="sidebar-toggle" class="sidebar-toggle view-button" type="button" aria-label="Otevřít pravý panel JARVISu" aria-expanded="false">PANEL</button><button id="workbench-toggle" class="workbench-toggle view-button" type="button" aria-label="Otevřít pracovní panel" aria-expanded="false">PRACOVNA</button>');
-  document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Lokální navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">LOKÁLNÍ · A: · BEZ TOKENŮ</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
+  document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div id="sidebar-provider-state" class="sidebar-foot">OVĚŘUJI REŽIM AI…</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
   document.body.insertAdjacentHTML("beforeend", '<aside id="workbench" class="workbench" aria-label="Pracovna JARVISu" aria-hidden="true"><div id="workbench-resizer" class="workbench-resizer" role="separator" aria-orientation="vertical" aria-label="Změnit šířku pracovny"></div><div class="sidebar-head"><b>PRACOVNA</b><button id="workbench-close" type="button" aria-label="Zavřít Pracovnu">×</button></div><nav class="workbench-tabs" aria-label="Sekce Pracovny"><button data-workbench-tab="live" type="button">ŽIVĚ</button><button data-workbench-tab="files" type="button">SOUBORY</button><button data-workbench-tab="browser" type="button">PROHLÍŽEČ</button></nav><section id="workbench-content" class="workbench-content"></section></aside>');
   document.getElementById("sidebar-toggle").addEventListener("click", () => openSidebar());
   document.getElementById("agents-sidebar-toggle").addEventListener("click", () => openAgentsSidebar());
@@ -839,6 +853,16 @@ async function sendCommand(text) {
     const chatMessages = [{ role: "system", content: agentSystemPrompt(activeAgent) }, ...conversation];
     let rawAnswer = "";
     const data = await controlPost("/chat", { model: activeAgent?.model || selectedModel, messages: chatMessages });
+    activeProvider = data.provider || configuredProvider;
+    updateProviderIndicators();
+    const fallbacks = Array.isArray(data.fallbacks) ? data.fallbacks : [];
+    if (fallbacks.length) {
+      const changes = fallbacks.map(item => `${providerLabels[item.provider] || item.provider}: ${item.reason || "nedostupné"}`).join(" | ");
+      addMessage(`Systém: online zdroj není dostupný nebo nemá volnou kvótu. ${changes}. Pokračuji přes ${providerLabels[activeProvider] || activeProvider}.`, "jarvis");
+      addActivity(`PŘEPNUTO NA ${providerLabels[activeProvider] || activeProvider}`);
+    } else {
+      addActivity(`ODPOVĚĎ: ${providerLabels[activeProvider] || activeProvider}`);
+    }
     rawAnswer = data.answer || "Model nevrátil odpověď.";
     const answer = await captureProjectMemory(rawAnswer);
     addMessage(answer, "jarvis");
@@ -897,6 +921,9 @@ document.addEventListener("keydown", event => {
 });
 async function refreshHealth() {
   try {
+    const settings = await controlGet("/settings");
+    configuredProvider = settings.ai_provider || "local";
+    updateProviderIndicators();
     const speech = await fetch(`${api}/v1/speech/health`).then(response => response.json());
     document.getElementById("speech-state").textContent = speech.available ? "ONLINE" : "CHYBA";
     document.getElementById("api-state").textContent = "ONLINE";
@@ -905,6 +932,27 @@ async function refreshHealth() {
   } catch (_) {
     document.getElementById("api-state").textContent = "NEDOSTUPNÉ";
     document.getElementById("diagnostics").textContent = "NELZE SE PŘIPOJIT K LOKÁLNÍMU API";
+  }
+}
+
+function updateProviderIndicators() {
+  const configuredLabel = providerLabels[configuredProvider] || configuredProvider.toUpperCase();
+  const effectiveProvider = activeProvider || configuredProvider;
+  const effectiveLabel = providerLabels[effectiveProvider] || effectiveProvider.toUpperCase();
+  const model = providerModels[effectiveProvider] || "OVĚŘUJI…";
+  const online = effectiveProvider === "gemini_free" || effectiveProvider === "openrouter_free" || configuredProvider === "automatic";
+  const modeText = configuredProvider === "automatic" && activeProvider
+    ? `AUTOMATICKY · ${effectiveLabel}`
+    : configuredLabel;
+  const credentialsText = online ? "KLÍČ OVĚŘEN" : "NEPOUŽÍVÁ SE";
+  document.getElementById("active-model")?.replaceChildren(document.createTextNode(model));
+  document.getElementById("provider-mode")?.replaceChildren(document.createTextNode(modeText));
+  document.getElementById("api-credentials")?.replaceChildren(document.createTextNode(credentialsText));
+  const sidebarState = document.getElementById("sidebar-provider-state");
+  if (sidebarState) {
+    sidebarState.textContent = configuredProvider === "automatic"
+      ? `AUTOMATICKY · AKTUÁLNĚ ${effectiveLabel}`
+      : `REŽIM: ${effectiveLabel}`;
   }
 }
 
