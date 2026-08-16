@@ -97,4 +97,8 @@ Projekt je vydán pod licencí Apache License 2.0. Úplné znění je v souboru
 
 ## Stav
 
-Beta, HUD verze 18.
+Beta, HUD verze 19.
+
+## Změny
+
+- 2026-08-16: Nastavení obsahuje přepínač pro spuštění JARVISu po přihlášení do Windows.

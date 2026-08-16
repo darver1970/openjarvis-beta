@@ -15,6 +15,8 @@ RULES_PATH = ROOT / "runtime" / "jarvis-rules.json"
 SETTINGS_PATH = ROOT / "runtime" / "jarvis-settings.json"
 PROJECTS_PATH = ROOT / "runtime" / "jarvis-projects.json"
 LOG_PATH = ROOT / "runtime" / "jarvis-control.log"
+STARTUP_VALUE_NAME = "OpenJarvisBeta"
+STARTUP_REGISTRY_PATH = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 logging.basicConfig(filename=LOG_PATH, level=logging.INFO, encoding="utf-8")
 
 
@@ -49,6 +51,67 @@ def save_document(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def run_startup_command(
+    command: str,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Spustí pevně definovaný příkaz pro správu autostartu ve Windows."""
+    if os.name != "nt":
+        raise ValueError("Automatické spuštění je podporováno pouze ve Windows.")
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+        check=False,
+        env=environment,
+    )
+
+
+def startup_is_enabled() -> bool:
+    """Ověří existenci vlastní položky JARVISu v registru aktuálního uživatele."""
+    if os.name != "nt":
+        return False
+    command = (
+        f"$item = Get-ItemProperty -Path '{STARTUP_REGISTRY_PATH}' "
+        f"-Name '{STARTUP_VALUE_NAME}' -ErrorAction SilentlyContinue; "
+        "if ($null -ne $item) { exit 0 }; exit 1"
+    )
+    return run_startup_command(command).returncode == 0
+
+
+def set_startup_enabled(enabled: bool) -> bool:
+    """Přidá nebo odstraní jedinou bezpečně definovanou položku autostartu."""
+    startup_script = ROOT / "spustit-jarvis.ps1"
+    if not startup_script.is_file():
+        raise ValueError("Spouštěcí skript JARVISu nebyl nalezen.")
+
+    if enabled:
+        environment = os.environ.copy()
+        environment["JARVIS_STARTUP_SCRIPT"] = str(startup_script)
+        command = (
+            "$path = [System.IO.Path]::GetFullPath($env:JARVIS_STARTUP_SCRIPT); "
+            "$value = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + "
+            "('\\\"' + $path + '\\\"'); "
+            f"New-Item -Path '{STARTUP_REGISTRY_PATH}' -Force | Out-Null; "
+            f"New-ItemProperty -Path '{STARTUP_REGISTRY_PATH}' -Name '{STARTUP_VALUE_NAME}' "
+            "-Value $value -PropertyType String -Force | Out-Null"
+        )
+    else:
+        environment = None
+        command = (
+            f"Remove-ItemProperty -Path '{STARTUP_REGISTRY_PATH}' -Name '{STARTUP_VALUE_NAME}' "
+            "-ErrorAction SilentlyContinue"
+        )
+
+    result = run_startup_command(command, environment)
+    if result.returncode != 0:
+        raise ValueError((result.stderr or "Nastavení automatického spuštění selhalo.").strip())
+    logging.info("Automatické spuštění po přihlášení: %s", enabled)
+    return startup_is_enabled()
+
+
 class Handler(BaseHTTPRequestHandler):
     """Povoluje pouze lokální čtení a bezpečnou správu textových pravidel."""
 
@@ -73,7 +136,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/rules":
             self.send_json({"rules": load_rules()})
         elif self.path == "/settings":
-            self.send_json(load_document(SETTINGS_PATH, "settings"))
+            settings = load_document(SETTINGS_PATH, "settings")
+            settings["start_with_windows"] = startup_is_enabled()
+            self.send_json(settings)
         elif self.path == "/projects":
             self.send_json(load_document(PROJECTS_PATH, "projects"))
         else:
@@ -113,11 +178,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"terminated": pid})
                 return
             if self.path == "/settings":
-                allowed = {"default_model", "voice_output", "wake_word", "internet_mode", "project_start_required"}
+                allowed = {
+                    "default_model", "voice_output", "wake_word", "internet_mode",
+                    "project_start_required", "start_with_windows",
+                }
                 current = load_document(SETTINGS_PATH, "settings")
                 for key, value in data.items():
                     if key in allowed:
                         current[key] = value
+                if "start_with_windows" in data:
+                    if not isinstance(data["start_with_windows"], bool):
+                        raise ValueError("Automatické spuštění musí mít hodnotu ano nebo ne.")
+                    current["start_with_windows"] = set_startup_enabled(data["start_with_windows"])
                 save_document(SETTINGS_PATH, current)
                 self.send_json(current)
                 return
