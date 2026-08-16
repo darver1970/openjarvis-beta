@@ -180,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/settings":
                 allowed = {
                     "default_model", "voice_output", "wake_word", "internet_mode",
-                    "project_start_required", "start_with_windows",
+                    "project_start_required", "start_with_windows", "borderless_window",
                 }
                 current = load_document(SETTINGS_PATH, "settings")
                 for key, value in data.items():

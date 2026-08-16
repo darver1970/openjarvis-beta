@@ -161,26 +161,28 @@ async function renderSidebar() {
       }));
     } else {
       jarvisSettings = await controlGet("/settings");
-      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
+      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
       const formSettings = document.getElementById("settings-form");
       formSettings.default_model.value = jarvisSettings.default_model || modelRouter.default;
       formSettings.voice_output.checked = jarvisSettings.voice_output !== false;
       formSettings.wake_word.checked = jarvisSettings.wake_word !== false;
       formSettings.start_with_windows.checked = jarvisSettings.start_with_windows === true;
+      formSettings.borderless_window.checked = jarvisSettings.borderless_window !== false;
       formSettings.internet_mode.value = jarvisSettings.internet_mode || "on_request";
       formSettings.project_start_required.checked = jarvisSettings.project_start_required !== false;
       formSettings.addEventListener("submit", async event => {
         event.preventDefault();
         jarvisSettings = await controlPost("/settings", {
           default_model: formSettings.default_model.value, voice_output: formSettings.voice_output.checked,
-          wake_word: formSettings.wake_word.checked, start_with_windows: formSettings.start_with_windows.checked, internet_mode: formSettings.internet_mode.value,
+          wake_word: formSettings.wake_word.checked, start_with_windows: formSettings.start_with_windows.checked,
+          borderless_window: formSettings.borderless_window.checked, internet_mode: formSettings.internet_mode.value,
           project_start_required: formSettings.project_start_required.checked
         });
         modelRouter.default = jarvisSettings.default_model;
         muted = !jarvisSettings.voice_output;
         muteButton.setAttribute("aria-pressed", String(muted));
         muteButton.textContent = muted ? "🔇 HLAS ZTIŠEN" : "🔊 HLAS ZAPNUT";
-        addActivity("LOKÁLNÍ NASTAVENÍ ULOŽENO");
+        addActivity("NASTAVENÍ ULOŽENO · OKNO SE ZMĚNÍ PO DALŠÍM SPUŠTĚNÍ");
       });
     }
   } catch (error) { content.innerHTML = `<p class="empty-state">${safeText(error.message)}</p>`; }

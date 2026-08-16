@@ -80,7 +80,7 @@ if (-not $networkProcess) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\network_monitor.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
-# HUD se otevírá jako samostatná desktopová aplikace bez karet a adresního řádku.
+# HUD lze otevřít bez panelu prohlížeče nebo jako běžné okno.
 $edgePaths = @(
     "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     "C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -91,9 +91,29 @@ if (-not $edgePath) {
     throw "Nebyl nalezen podporovaný prohlížeč pro samostatné HUD okno."
 }
 
-Start-Process -FilePath $edgePath -ArgumentList @(
-    "--app=http://127.0.0.1:5173/?hud_version=18",
+$hudUrl = "http://127.0.0.1:5173/?hud_version=20"
+$borderlessWindow = $true
+$settingsPath = Join-Path $root "runtime\jarvis-settings.json"
+try {
+    if (Test-Path -LiteralPath $settingsPath) {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        if ($settings.PSObject.Properties.Name -contains "borderless_window") {
+            $borderlessWindow = [bool]$settings.borderless_window
+        }
+    }
+} catch {
+    Write-Warning "Nastavení vzhledu okna nelze načíst; používám okno bez rámečku."
+}
+
+$browserArguments = @(
     "--new-window",
     "--user-data-dir=$root\runtime\hud-profile",
     "--window-size=1440,920"
-) -WorkingDirectory "$root\hud"
+)
+if ($borderlessWindow) {
+    $browserArguments = @("--app=$hudUrl") + $browserArguments
+} else {
+    $browserArguments = @($hudUrl) + $browserArguments
+}
+
+Start-Process -FilePath $edgePath -ArgumentList $browserArguments -WorkingDirectory "$root\hud"
