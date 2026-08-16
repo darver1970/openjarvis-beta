@@ -20,6 +20,10 @@ V PowerShellu spusťte:
 & 'A:\projekty\OpenJarvis\spustit-jarvis.ps1'
 ```
 
+## Čistá instalace
+
+Po stažení repozitáře spusťte `install.ps1`. Skript se zeptá na cílovou složku, ověří alespoň 12 GB volného místa a nainstaluje bezplatné závislosti do zvoleného umístění. Vyžaduje Windows, internet a Git; model `qwen3.5:2b` lze přeskočit parametrem `-SkipModel`.
+
 ## Veřejný obsah
 
 Tento repozitář záměrně neobsahuje lokální modely, databáze, cache, hlasové nahrávky, logy ani runtime konfiguraci. Tyto soubory se vytvářejí pouze na zařízení uživatele.

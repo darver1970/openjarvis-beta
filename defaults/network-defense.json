@@ -1,0 +1,6 @@
+{
+  "interval_seconds": 20,
+  "connection_alert_threshold": 80,
+  "auto_block": false,
+  "approved_networks": []
+}

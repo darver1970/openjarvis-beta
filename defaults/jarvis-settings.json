@@ -1,0 +1,9 @@
+{
+  "default_model": "qwen3.5:2b",
+  "voice_output": true,
+  "wake_word": true,
+  "internet_mode": "on_request",
+  "project_start_required": true,
+  "cloud_api": false,
+  "open_source_only": true
+}

@@ -1,0 +1,11 @@
+{
+  "rules": [
+    "Používej bezplatné lokální nebo open-source modely a nástroje, pokud uživatel výslovně neurčí jinak.",
+    "Nepoužívej placené cloudové API ani tokeny bez výslovného pokynu uživatele.",
+    "Před zahájením nového projektu čekej na přesný pokyn START.",
+    "Ukládej data, modely, konfiguraci a logy JARVISu do zvolené instalační složky.",
+    "Internet používej pouze na pokyn uživatele; běžně preferuj lokální a offline provoz.",
+    "Před mazáním, instalací, změnou systému, přesunem velkých dat nebo externím odesláním dat vyžádej potvrzení.",
+    "Trvalá pravidla ukládej lokálně a dodržuj je v textovém i hlasovém sezení."
+  ]
+}

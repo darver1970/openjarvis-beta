@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-ROOT = Path("A:/projekty/OpenJarvis")
+ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "runtime" / "network-defense.json"
 STATUS_PATH = ROOT / "hud" / "network-status.json"
 LOG_PATH = ROOT / "runtime" / "network-monitor.log"

@@ -1,0 +1,7 @@
+{
+  "sample_rate": 16000,
+  "wake_threshold": 0.55,
+  "command_seconds": 8,
+  "language": "cs",
+  "model": "qwen3.5:2b"
+}

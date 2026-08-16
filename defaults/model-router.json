@@ -1,0 +1,9 @@
+{
+  "default_model": "qwen3.5:2b",
+  "complex_model": "qwen3.5:2b",
+  "coding_model": "qwen3.5:2b",
+  "vision_model": "qwen3.5:2b",
+  "embedding_model": "mxbai-embed-large",
+  "coding_pattern": "\\b(kód|code|program|skript|debug|chyba|html|css|javascript|python|api|plugin|refaktor)\\b",
+  "complex_pattern": "\\b(analyzuj|naplánuj|architektura|porovnej|výzkum|strategie|autonom)\\b"
+}

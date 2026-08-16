@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path("A:/projekty/OpenJarvis")
+ROOT = Path(__file__).resolve().parent
 RULES_PATH = ROOT / "runtime" / "jarvis-rules.json"
 SETTINGS_PATH = ROOT / "runtime" / "jarvis-settings.json"
 PROJECTS_PATH = ROOT / "runtime" / "jarvis-projects.json"

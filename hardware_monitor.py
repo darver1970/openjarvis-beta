@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path("A:/projekty/OpenJarvis")
+ROOT = Path(__file__).resolve().parent
 HUD_STATUS = ROOT / "hud" / "hardware-status.json"
 LOG_PATH = ROOT / "runtime" / "hardware-monitor.log"
 SENSOR_URL = "http://127.0.0.1:8085/data.json"

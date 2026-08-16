@@ -1,6 +1,6 @@
 # Spouští všechny lokální služby Jarvise z disku A: a otevře HUD rozhraní.
 $ErrorActionPreference = "Stop"
-$root = "A:\projekty\OpenJarvis"
+$root = $PSScriptRoot
 $env:OPENJARVIS_HOME = $root
 $env:OLLAMA_MODELS = "$root\runtime\ollama-models"
 $env:HF_HOME = "$root\runtime\huggingface"
@@ -13,32 +13,43 @@ function Test-Port([int]$Port) {
     return $null -ne (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
 }
 
+$ollamaPath = "$root\runtime\ollama\ollama.exe"
+if (-not (Test-Path -LiteralPath $ollamaPath)) {
+    $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
+    if (-not $ollamaCommand) { throw "Ollama nebyla nalezena. Nejdříve spusťte install.ps1." }
+    $ollamaPath = $ollamaCommand.Source
+}
 if (-not (Test-Port 11434)) {
-    Start-Process -FilePath "$root\runtime\ollama\ollama.exe" -ArgumentList "serve" -WorkingDirectory "$root\runtime\ollama" -WindowStyle Hidden
+    Start-Process -FilePath $ollamaPath -ArgumentList "serve" -WorkingDirectory $root -WindowStyle Hidden
     Start-Sleep -Seconds 2
 }
 if (-not (Test-Port 8000)) {
     Start-Process -FilePath "$root\src\.venv\Scripts\jarvis.exe" -ArgumentList "serve", "--host", "127.0.0.1", "--port", "8000" -WorkingDirectory "$root\src" -WindowStyle Hidden
     Start-Sleep -Seconds 4
 }
+$pythonPath = "$root\src\.venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $pythonPath)) {
+    throw "Python prostředí nebylo nalezeno. Nejdříve spusťte install.ps1."
+}
 if (-not (Test-Port 5173)) {
-    Start-Process -FilePath "$root\runtime\python\cpython-3.13-windows-x86_64-none\python.exe" -ArgumentList "-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
+    Start-Process -FilePath $pythonPath -ArgumentList "-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
     Start-Sleep -Seconds 1
 }
 
 # Senzory CPU/GPU/disků: program, konfigurace, log i API zůstávají na A:.
-$hardwarePath = "$root\runtime\librehardwaremonitor\LibreHardwareMonitor.exe"
+$hardwarePath = Get-ChildItem -Path "$root\runtime\librehardwaremonitor" -Filter "LibreHardwareMonitor.exe" -File -Recurse -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty FullName
 $hardwareProcess = Get-Process -Name "LibreHardwareMonitor" -ErrorAction SilentlyContinue |
     Select-Object -First 1
-if (-not $hardwareProcess) {
+if ($hardwarePath -and -not $hardwareProcess) {
     Start-Process -FilePath $hardwarePath -WorkingDirectory "$root\runtime\librehardwaremonitor" -WindowStyle Hidden
     Start-Sleep -Seconds 2
 }
 $telemetryProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {
         $_.Name -eq "python.exe" -and
-        $_.CommandLine -match "A:\\projekty\\OpenJarvis\\src\\.venv\\Scripts\\python.exe" -and
-        $_.CommandLine -match "A:\\projekty\\OpenJarvis\\hardware_monitor.py"
+        $_.CommandLine -like "*$root*" -and
+        $_.CommandLine -like "*hardware_monitor.py*"
     } |
     Select-Object -First 1
 if (-not $telemetryProcess) {
@@ -54,8 +65,8 @@ if (-not (Test-Port 8123)) {
 $voiceProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {
         $_.Name -eq "python.exe" -and
-        $_.CommandLine -match "A:\\projekty\\OpenJarvis\\src\\.venv\\Scripts\\python.exe" -and
-        $_.CommandLine -match "A:\\projekty\\OpenJarvis\\jarvis_voice.py"
+        $_.CommandLine -like "*$root*" -and
+        $_.CommandLine -like "*jarvis_voice.py*"
     } |
     Select-Object -First 1
 if (-not $voiceProcess) {

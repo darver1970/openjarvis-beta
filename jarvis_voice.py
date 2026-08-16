@@ -15,7 +15,7 @@ import soundfile as sf
 from openwakeword.model import Model
 
 
-ROOT = Path("A:/projekty/OpenJarvis")
+ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "runtime" / "voice-config.json"
 ROUTER_PATH = ROOT / "runtime" / "model-router.json"
 SESSION_PATH = ROOT / "runtime" / "shared-session.json"
