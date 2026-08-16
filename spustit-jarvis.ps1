@@ -81,16 +81,17 @@ try {
 }
 
 # Samostatný lokální klient reaguje na „Hey Jarvis“ i když HUD právě čte odpověď.
-$voiceProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+$voiceProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {
         $_.Name -eq "python.exe" -and
         $_.CommandLine -like "*$root*" -and
         $_.CommandLine -like "*jarvis_voice.py*"
-    } |
-    Select-Object -First 1
-if (-not $voiceProcess) {
-    Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_voice.py" -WorkingDirectory $root -WindowStyle Hidden
-}
+    }
+# Hlasový klient je při hlavním startu krátce obnoven, aby vždy načetl
+# aktuální mikrofon, model i režim bez wake-wordu.
+$voiceProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 400
+Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_voice.py" -WorkingDirectory $root -WindowStyle Hidden
 
 $networkProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -eq "python.exe" -and $_.CommandLine -match "network_monitor.py" } |

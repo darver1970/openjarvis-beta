@@ -61,7 +61,11 @@ def cancellation_requested() -> bool:
 
 
 def clear_cancellation() -> None:
-    state = {"enabled": voice_is_enabled(), "cancel_requested": False, "manual_listen": False}
+    try:
+        state = json.loads(VOICE_CONTROL_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    state.update({"enabled": voice_is_enabled(), "cancel_requested": False, "manual_listen": False})
     VOICE_CONTROL_PATH.write_text(json.dumps(state), encoding="utf-8")
 
 
@@ -100,6 +104,19 @@ def consume_manual_listen() -> bool:
         state["manual_listen"] = False
         state["enabled"] = True
         state["cancel_requested"] = False
+        VOICE_CONTROL_PATH.write_text(json.dumps(state), encoding="utf-8")
+        return True
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def consume_restart_request() -> bool:
+    """Restartuje pouze hlasový klient po změně jeho bezpečné konfigurace."""
+    try:
+        state = json.loads(VOICE_CONTROL_PATH.read_text(encoding="utf-8"))
+        if not state.get("restart_requested", False):
+            return False
+        state["restart_requested"] = False
         VOICE_CONTROL_PATH.write_text(json.dumps(state), encoding="utf-8")
         return True
     except (OSError, json.JSONDecodeError):
@@ -192,18 +209,34 @@ def run_curl(arguments: list[str]) -> dict[str, object]:
 
 def transcribe(audio_path: Path, language: str) -> dict[str, object]:
     """Přepíše WAV soubor pomocí lokálního Faster-Whisper serveru."""
-    arguments = [
-        "-X", "POST", f"{API_URL}/v1/speech/transcribe",
-        "-F", f"file=@{audio_path}",
-    ]
-    if language.lower() in {"cs", "en"}:
-        arguments.extend(["-F", f"language={language.lower()}"])
-    result = run_curl(arguments)
-    return {
-        "text": str(result.get("text", "")).strip(),
-        "language": str(result.get("language") or "auto"),
-        "confidence": float(result.get("confidence") or 0.0),
-    }
+    def request_transcription(request_language: str) -> dict[str, object]:
+        arguments = [
+            "-X", "POST", f"{API_URL}/v1/speech/transcribe",
+            "-F", f"file=@{audio_path}",
+        ]
+        if request_language in {"cs", "en"}:
+            arguments.extend(["-F", f"language={request_language}"])
+        result = run_curl(arguments)
+        return {
+            "text": str(result.get("text", "")).strip(),
+            "language": str(result.get("language") or request_language or "auto"),
+            "confidence": float(result.get("confidence") or 0.0),
+        }
+
+    requested_language = "auto" if language.lower() == "cs-en" else language.lower()
+    result = request_transcription(requested_language)
+    if requested_language in {"cs", "en"}:
+        return result
+    detected_language = str(result["language"]).lower()
+    confidence = float(result["confidence"])
+    if detected_language in {"cs", "en"} and confidence >= 0.65:
+        return result
+    logging.info(
+        "Nejistá jazyková detekce %s (%.2f), opakuji přepis s češtinou.",
+        detected_language,
+        confidence,
+    )
+    return request_transcription("cs")
 
 
 def is_stop_command(command: str) -> bool:
@@ -528,6 +561,9 @@ def main() -> None:
         speech_blocks = 0
         awaiting_command_until = 0.0
         while True:
+            if consume_restart_request():
+                publish("voice_mode", text="HLASOVÝ MODUL OBNOVUJE NASTAVENÍ", provider="local")
+                return
             raw_audio = microphone.read()
             now = time.monotonic()
             if now - last_meter_update >= 0.15:
@@ -544,6 +580,7 @@ def main() -> None:
             level = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
             speech_threshold = max(600.0, microphone.noise_floor * 1.80)
             speech_blocks = speech_blocks + 1 if level >= speech_threshold else 0
+            continuous_transcription = bool(config.get("continuous_transcription", False))
             automatic_listen = bool(config.get("always_listening", True)) and speech_blocks >= 2
             if not manual_listen and not wake_detected and not automatic_listen:
                 continue
@@ -572,16 +609,28 @@ def main() -> None:
             try:
                 recognition = transcribe(audio_path, language)
                 command = str(recognition["text"])
+                publish(
+                    "voice_transcript",
+                    text=command,
+                    language=recognition["language"],
+                    confidence=recognition["confidence"],
+                )
                 spoken_wake_phrase = contains_wake_phrase(command)
                 waiting_for_command = time.monotonic() < awaiting_command_until
                 if wake_detected or spoken_wake_phrase:
                     command = strip_wake_phrase(command)
                 minimum_confidence = float(config.get("auto_transcription_confidence", 0.55))
-                if automatic_listen and not spoken_wake_phrase and not waiting_for_command and float(recognition["confidence"]) < minimum_confidence:
+                if (
+                    automatic_listen
+                    and not continuous_transcription
+                    and not spoken_wake_phrase
+                    and not waiting_for_command
+                    and float(recognition["confidence"]) < minimum_confidence
+                ):
                     logging.info("Automatický přepis odmítnut pro nízkou jistotu: %.2f", recognition["confidence"])
                     publish("listening", text="ČEKÁM NA JASNÝ HLASOVÝ PŘÍKAZ")
                     continue
-                if automatic_listen and not (spoken_wake_phrase or waiting_for_command):
+                if automatic_listen and not continuous_transcription and not (spoken_wake_phrase or waiting_for_command):
                     logging.info("Automatický přepis ignorován bez oslovení JARVISu")
                     continue
                 if not command:

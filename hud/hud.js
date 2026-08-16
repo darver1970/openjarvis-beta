@@ -32,7 +32,9 @@ let activeRequest;
 let lastVoiceEventId = "";
 let activeVoiceMessage = null;
 let voiceAudio = null;
+let voiceUtterance = null;
 let voiceQueue = [];
+let voicePlaybackEpoch = 0;
 let conversation = [];
 let persistentRules = [];
 let projectMemory = { project: "OpenJarvis Beta", summary: "", entries: [] };
@@ -336,18 +338,19 @@ async function renderSidebar() {
       document.getElementById("show-agent-catalog")?.addEventListener("click", () => renderAgentCatalog());
     } else {
       jarvisSettings = await controlGet("/settings");
-      const audio = await controlGet("/audio/devices");
+      const [audio, voiceConfig] = await Promise.all([controlGet("/audio/devices"), controlGet("/voice/config")]);
       const outputs = await audioOutputDevices();
       let providerData = await controlGet("/providers");
       const inputOptions = (audio.inputs || []).map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("") || '<option value="">Mikrofon nebyl nalezen</option>';
       const outputOptions = outputs.map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("");
-      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label>Vstupní mikrofon<select name="input_device">${inputOptions}</select></label><label>Výstup hlasu<select name="audio_output">${outputOptions}</select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Vstup řeči</dt><dd>LOKÁLNÍ · PO ZMĚNĚ RESTART</dd><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
+      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label>Vstupní mikrofon<select name="input_device">${inputOptions}</select></label><label>Výstup hlasu<select name="audio_output">${outputOptions}</select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="continuous_transcription"> Trvalý hlasový režim bez „Hey Jarvis“</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Vstup řeči</dt><dd>LOKÁLNÍ · REAGUJE PO 0,55 S TICHA</dd><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
       const formSettings = document.getElementById("settings-form");
       const providerOptions = (providerData.providers || []).map(provider => `<option value="${safeText(provider.id)}">${safeText(provider.label)}${provider.configured ? "" : " · VYŽADUJE KLÍČ"}</option>`).join("");
       formSettings.insertAdjacentHTML("afterbegin", `<label>Režim AI<select name="ai_provider">${providerOptions}</select></label><section id="cloud-key-box" class="cloud-key-box" hidden><p id="cloud-key-help"></p><label>API klíč<input id="cloud-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Vložit klíč pro vybraný režim"></label><button id="save-cloud-key" class="primary-side" type="button">ULOŽIT A OTESTOVAT KLÍČ</button></section>`);
       formSettings.default_model.value = jarvisSettings.default_model || modelRouter.default;
       formSettings.voice_output.checked = jarvisSettings.voice_output !== false;
       formSettings.wake_word.checked = jarvisSettings.wake_word !== false;
+      formSettings.continuous_transcription.checked = voiceConfig.continuous_transcription === true;
       formSettings.start_with_windows.checked = jarvisSettings.start_with_windows === true;
       formSettings.borderless_window.checked = jarvisSettings.borderless_window !== false;
       formSettings.internet_mode.value = jarvisSettings.internet_mode || "on_request";
@@ -416,6 +419,7 @@ async function renderSidebar() {
           project_start_required: formSettings.project_start_required.checked, ai_provider: provider
         });
         if (formSettings.input_device.value) await controlPost("/audio/input", { input_device: formSettings.input_device.value });
+        await controlPost("/voice/config", { continuous_transcription: formSettings.continuous_transcription.checked });
         localStorage.setItem("jarvis-audio-output", formSettings.audio_output.value || "default");
         modelRouter.default = jarvisSettings.default_model;
         muted = !jarvisSettings.voice_output;
@@ -594,17 +598,16 @@ function setActivity(text, state = "") {
 }
 
 function speak(text) {
-  if (muted || !("speechSynthesis" in window) || !text) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "cs-CZ";
-  utterance.rate = 1.03;
-  window.speechSynthesis.speak(utterance);
+  if (muted || !text) return;
+  voiceQueue.push({ audioUrl: "", fallbackText: text });
+  playQueuedVoice();
 }
 
 function stopPlayback() {
+  voicePlaybackEpoch += 1;
   window.speechSynthesis?.cancel();
   voiceQueue = [];
+  voiceUtterance = null;
   if (voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; voiceAudio = null; }
 }
 
@@ -628,18 +631,59 @@ function playVoiceAudio(audioUrl, fallbackText) {
 }
 
 function playQueuedVoice() {
-  if (voiceAudio || !voiceQueue.length) return;
+  if (voiceAudio || voiceUtterance || !voiceQueue.length) return;
   const { audioUrl, fallbackText } = voiceQueue.shift();
-  if (!audioUrl) { speak(fallbackText); playQueuedVoice(); return; }
-  voiceAudio = new Audio(`${audioUrl}?time=${Date.now()}`);
-  const finish = () => { voiceAudio = null; playQueuedVoice(); };
-  voiceAudio.addEventListener("ended", finish, { once: true });
-  voiceAudio.addEventListener("error", () => { speak(fallbackText); finish(); }, { once: true });
+  const epoch = voicePlaybackEpoch;
+  const finish = () => {
+    if (epoch !== voicePlaybackEpoch) return;
+    playQueuedVoice();
+  };
+  const speakFallback = () => {
+    if (!fallbackText || muted || !("speechSynthesis" in window)) {
+      finish();
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(fallbackText);
+    voiceUtterance = utterance;
+    utterance.lang = "cs-CZ";
+    utterance.rate = 1.03;
+    let completed = false;
+    const complete = () => {
+      if (completed) return;
+      completed = true;
+      if (voiceUtterance === utterance) voiceUtterance = null;
+      finish();
+    };
+    utterance.addEventListener("end", complete, { once: true });
+    utterance.addEventListener("error", complete, { once: true });
+    window.speechSynthesis.speak(utterance);
+  };
+  if (!audioUrl) {
+    speakFallback();
+    return;
+  }
+  const audio = new Audio(`${audioUrl}?time=${Date.now()}`);
+  voiceAudio = audio;
+  let completed = false;
+  const completeAudio = () => {
+    if (completed) return;
+    completed = true;
+    if (voiceAudio === audio) voiceAudio = null;
+    finish();
+  };
+  const failAudio = () => {
+    if (completed) return;
+    completed = true;
+    if (voiceAudio === audio) voiceAudio = null;
+    speakFallback();
+  };
+  audio.addEventListener("ended", completeAudio, { once: true });
+  audio.addEventListener("error", failAudio, { once: true });
   const outputId = localStorage.getItem("jarvis-audio-output") || "default";
-  const selectOutput = typeof voiceAudio.setSinkId === "function" && outputId !== "default"
-    ? voiceAudio.setSinkId(outputId).catch(() => {})
+  const selectOutput = typeof audio.setSinkId === "function" && outputId !== "default"
+    ? audio.setSinkId(outputId).catch(() => {})
     : Promise.resolve();
-  selectOutput.then(() => voiceAudio.play()).catch(() => { speak(fallbackText); finish(); });
+  selectOutput.then(() => audio.play()).catch(failAudio);
 }
 
 async function audioOutputDevices() {
@@ -1070,6 +1114,10 @@ async function pollVoiceEvents() {
       activeRequest?.abort();
       setActivity("HEY JARVIS ROZPOZNÁN", "listening");
       addActivity("AKTIVAČNÍ SLOVO ROZPOZNÁNO");
+    } else if (event.type === "voice_transcript") {
+      input.value = event.text || "";
+      setActivity("PŘEPIS HLASU DOKONČEN", "thinking");
+      addActivity(`PŘEPIS: ${event.text || "BEZ TEXTU"}`);
     } else if (event.type === "voice_command") {
       activeVoiceMessage = null;
       addMessage(event.text, "user");

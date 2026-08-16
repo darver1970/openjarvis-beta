@@ -626,6 +626,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(state)
         elif self.path == "/voice/meter":
             self.send_json(load_document(VOICE_METER_PATH, "meter"))
+        elif self.path == "/voice/config":
+            config = load_document(VOICE_CONFIG_PATH, "voice")
+            self.send_json({"continuous_transcription": bool(config.get("continuous_transcription", False))})
         elif self.path == "/audio/devices":
             voice_config = load_document(VOICE_CONFIG_PATH, "voice")
             self.send_json({"inputs": list_audio_inputs(), "selected_input": str(voice_config.get("input_device", ""))})
@@ -761,6 +764,21 @@ class Handler(BaseHTTPRequestHandler):
                 save_document(VOICE_CONFIG_PATH, config)
                 logging.info("Vybrán mikrofon JARVISu: %s", selected["name"])
                 self.send_json({"input_device": selected["name"], "restart_required": True})
+                return
+            if self.path == "/voice/config":
+                continuous = data.get("continuous_transcription")
+                if not isinstance(continuous, bool):
+                    raise ValueError("Trvalý hlasový režim musí mít hodnotu ano nebo ne.")
+                config = load_document(VOICE_CONFIG_PATH, "voice")
+                config["continuous_transcription"] = continuous
+                config["min_command_seconds"] = 0.4
+                config["silence_seconds"] = 0.55
+                save_document(VOICE_CONFIG_PATH, config)
+                state = load_document(VOICE_CONTROL_PATH, "voice")
+                state["restart_requested"] = True
+                save_document(VOICE_CONTROL_PATH, state)
+                logging.info("Trvalý hlasový režim: %s", continuous)
+                self.send_json({"continuous_transcription": continuous, "restart_required": True})
                 return
             if self.path == "/voice/stop":
                 state = load_document(VOICE_CONTROL_PATH, "voice")

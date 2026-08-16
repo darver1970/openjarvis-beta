@@ -271,7 +271,7 @@ class JarvisApi:
 
 def main() -> None:
     """Spustí izolovaný lokální host bez externího prohlížeče a rozšíření."""
-    hud_url = "http://127.0.0.1:5173/?hud_version=v0.5&asset_revision=2"
+    hud_url = "http://127.0.0.1:5173/?hud_version=v0.5&asset_revision=5"
     borderless = load_borderless_setting()
     logging.info("Spouštím nativní HUD: %s", hud_url)
     window = webview.create_window(
