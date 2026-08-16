@@ -84,6 +84,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath '
 
 Tento repozitář záměrně neobsahuje lokální modely, databáze, cache, hlasové nahrávky, logy ani runtime konfiguraci. Tyto soubory se vytvářejí pouze na zařízení uživatele.
 
+## Kredit a licence
+
+Tato beta nadstavba vychází ze serverového projektu
+[OpenJarvis](https://github.com/open-jarvis/OpenJarvis). Kredit původním
+autorům: Jon Saad-Falcon, Avanika Narayan, Robby Manihani, Tanvir Bhathal,
+Herumb Shandilya, Hakki Orhun Akengin, Gabriel Bo, Andrew Park, Matthew Hart,
+Caia Costello, Chuan Li, Christopher Re a Azalia Mirhoseini.
+
+Projekt je vydán pod licencí Apache License 2.0. Úplné znění je v souboru
+[`LICENSE`](LICENSE).
+
 ## Stav
 
 Beta, HUD verze 18.
