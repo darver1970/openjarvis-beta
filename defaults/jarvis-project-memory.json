@@ -1,0 +1,34 @@
+{
+  "project": "OpenJarvis Beta",
+  "summary": "Lokální JARVIS pro Windows s vlastním nativním HUD oknem a lokálním řízením.",
+  "entries": [
+    {
+      "type": "user_preference",
+      "title": "Lokální provoz",
+      "summary": "Výchozí provoz je lokální. Internet se používá pouze na výslovný požadavek uživatele.",
+      "source": "user",
+      "created_at": "2026-08-16T15:30:00"
+    },
+    {
+      "type": "decision",
+      "title": "Bezpečné změny",
+      "summary": "Instalace, placené služby, mazání a systémové změny vyžadují osobní potvrzení uživatele.",
+      "source": "user",
+      "created_at": "2026-08-16T15:30:00"
+    },
+    {
+      "type": "decision",
+      "title": "GitHub po přesném příkazu",
+      "summary": "JARVIS smí vytvořit commit a push do existujícího repozitáře pouze po přesném příkazu: nahraj na github.",
+      "source": "user",
+      "created_at": "2026-08-16T15:30:00"
+    },
+    {
+      "type": "decision",
+      "title": "Vlastní izolovaný HUD",
+      "summary": "JARVIS se spouští ve vlastním Jarvis-HUD.exe bez samostatného Brave nebo Edge okna a bez rozšíření prohlížeče.",
+      "source": "user",
+      "created_at": "2026-08-16T15:30:00"
+    }
+  ]
+}

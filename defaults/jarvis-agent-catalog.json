@@ -1,0 +1,63 @@
+{
+  "agents": [
+    {
+      "id": "developer",
+      "name": "Vývojář",
+      "role": "Programování a kontrola kódu",
+      "model": "qwen2.5-coder:7b",
+      "price_type": "free",
+      "price": "Zdarma",
+      "license": "Apache-2.0",
+      "source": "Vestavěný lokální katalog JARVISu",
+      "version": "1.0.0",
+      "integrity": "Ověřený vestavěný záznam",
+      "permissions": [
+        "Lokální analýza souborů",
+        "Návrh změn kódu"
+      ],
+      "rules": [
+        "Nenahrává změny na GitHub bez samostatného příkazu uživatele.",
+        "Před systémovou změnou vyžaduje potvrzení."
+      ]
+    },
+    {
+      "id": "analyst",
+      "name": "Analytik",
+      "role": "Analýza dat, plánů a souvislostí",
+      "model": "qwen3.5:9b",
+      "price_type": "free",
+      "price": "Zdarma",
+      "license": "Apache-2.0",
+      "source": "Vestavěný lokální katalog JARVISu",
+      "version": "1.0.0",
+      "integrity": "Ověřený vestavěný záznam",
+      "permissions": [
+        "Lokální analýza textů",
+        "Tvorba plánů"
+      ],
+      "rules": [
+        "Nedělá změny bez potvrzení uživatele."
+      ]
+    },
+    {
+      "id": "automation-pro",
+      "name": "Automation Pro",
+      "role": "Rozšířená automatizace pracovních postupů",
+      "model": "qwen3.5:9b",
+      "price_type": "paid",
+      "price": "19 EUR / měsíc",
+      "currency": "EUR",
+      "license": "Komerční licence",
+      "source": "Ukázkový katalogový záznam",
+      "vendor": "Dodavatel Automation Pro",
+      "version": "1.0.0",
+      "integrity": "Vyžaduje ověření před instalací",
+      "permissions": [
+        "Přístup k rozšířením automatizace"
+      ],
+      "rules": [
+        "Nákup a platbu musí uživatel dokončit ručně."
+      ]
+    }
+  ]
+}

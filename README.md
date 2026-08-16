@@ -77,7 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath '
 - **Málo místa na disku:** zvolte jiný disk nebo použijte `-SkipModel`.
 - **Chybí Git:** nainstalujte Git pro Windows, otevřete nový PowerShell a spusťte instalátor znovu.
 - **Model se nestáhl:** otevřete nový PowerShell, nastavte se do instalační složky a spusťte `ollama pull qwen3.5:2b`.
-- **HUD se neotevře:** spusťte `spustit-jarvis.ps1` přímo z instalační složky a zkontrolujte, zda antivirus nebo firewall neblokuje místní porty `8000`, `5173`, `8123` a `11434`.
+- **HUD se neotevře:** spusťte `spustit-jarvis.ps1` přímo z instalační složky a zkontrolujte, zda antivirus nebo firewall neblokuje místní porty `8000`, `5173`, `8125` a `11434`.
 - **Hlas nefunguje:** povolte mikrofon pro desktopové aplikace v Nastavení Windows a spusťte instalátor znovu bez `-SkipVoice`.
 
 ## Veřejný obsah
@@ -97,9 +97,12 @@ Projekt je vydán pod licencí Apache License 2.0. Úplné znění je v souboru
 
 ## Stav
 
-Beta, HUD verze 20.
+Beta, v0.22.
 
 ## Změny
 
 - 2026-08-16: Nastavení obsahuje přepínač pro spuštění JARVISu po přihlášení do Windows.
 - 2026-08-16: Nastavení obsahuje přepínač pro otevření HUDu v okně bez rámečku prohlížeče.
+- 2026-08-16: Přidána sekce Agentů v levé liště, lokální katalog a řízená instalace bezplatných rolí.
+- 2026-08-16: Přidáno paralelní zadání úkolu připraveným agentům příkazem `agenti: <úkol>`.
+- 2026-08-16: Vydání v0.22 přidává vlastní izolovaný Jarvis-HUD.exe, projektovou paměť pro spolupráci a postranní panely pouze v konverzaci.

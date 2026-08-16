@@ -35,7 +35,6 @@ if (-not (Test-Port 5173)) {
     Start-Process -FilePath $pythonPath -ArgumentList "-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
     Start-Sleep -Seconds 1
 }
-
 # Senzory CPU/GPU/disků: program, konfigurace, log i API zůstávají na A:.
 $hardwarePath = Get-ChildItem -Path "$root\runtime\librehardwaremonitor" -Filter "LibreHardwareMonitor.exe" -File -Recurse -ErrorAction SilentlyContinue |
     Select-Object -First 1 -ExpandProperty FullName
@@ -57,7 +56,7 @@ if (-not $telemetryProcess) {
 }
 
 # Trvalá pravidla jsou obsloužena lokálním API na loopbacku.
-if (-not (Test-Port 8123)) {
+if (-not (Test-Port 8126)) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_control.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
@@ -80,40 +79,9 @@ if (-not $networkProcess) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\network_monitor.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
-# HUD lze otevřít bez panelu prohlížeče nebo jako běžné okno.
-$edgePaths = @(
-    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-    "C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
-)
-$edgePath = $edgePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $edgePath) {
-    throw "Nebyl nalezen podporovaný prohlížeč pro samostatné HUD okno."
+# HUD se otevírá ve vlastním izolovaném okně JARVISu, ne v uživatelském prohlížeči.
+$desktopApp = "$root\desktop\Jarvis-HUD.exe"
+if (-not (Test-Path -LiteralPath $desktopApp)) {
+    throw "Nativní okno Jarvise nebylo nalezeno: $desktopApp"
 }
-
-$hudUrl = "http://127.0.0.1:5173/?hud_version=20"
-$borderlessWindow = $true
-$settingsPath = Join-Path $root "runtime\jarvis-settings.json"
-try {
-    if (Test-Path -LiteralPath $settingsPath) {
-        $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
-        if ($settings.PSObject.Properties.Name -contains "borderless_window") {
-            $borderlessWindow = [bool]$settings.borderless_window
-        }
-    }
-} catch {
-    Write-Warning "Nastavení vzhledu okna nelze načíst; používám okno bez rámečku."
-}
-
-$browserArguments = @(
-    "--new-window",
-    "--user-data-dir=$root\runtime\hud-profile",
-    "--window-size=1440,920"
-)
-if ($borderlessWindow) {
-    $browserArguments = @("--app=$hudUrl") + $browserArguments
-} else {
-    $browserArguments = @($hudUrl) + $browserArguments
-}
-
-Start-Process -FilePath $edgePath -ArgumentList $browserArguments -WorkingDirectory "$root\hud"
+Start-Process -FilePath $desktopApp -WorkingDirectory "$root\desktop"

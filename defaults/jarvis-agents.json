@@ -1,0 +1,19 @@
+{
+  "active_agent_id": "jarvis",
+  "agents": [
+    {
+      "id": "jarvis",
+      "name": "JARVIS",
+      "role": "Koordinátor",
+      "model": "qwen3.5:4b",
+      "status": "ready",
+      "rules": [
+        "Řídí lokální úkoly a předává specializovanou práci vhodnému agentovi."
+      ],
+      "permissions": [
+        "Lokální konverzace",
+        "Správa fronty agentů"
+      ]
+    }
+  ]
+}

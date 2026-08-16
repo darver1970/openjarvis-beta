@@ -124,6 +124,20 @@ if (-not $SkipVoice) {
     if ($LASTEXITCODE -ne 0) { Write-Warning 'Hlasové závislosti se nepodařilo nainstalovat. HUD zůstává funkční.' }
 }
 
+Write-Step 'Vytvářím vlastní nativní okno JARVIS HUD.'
+$desktopPath = Join-Path $installRoot 'desktop'
+$hudSource = Join-Path $desktopPath 'jarvis_hud.py'
+$hudIcon = Join-Path $desktopPath 'jarvis.ico'
+if (-not (Test-Path -LiteralPath $hudSource) -or -not (Test-Path -LiteralPath $hudIcon)) {
+    throw 'Zdroj nebo ikona vlastního JARVIS HUDu chybí.'
+}
+& $python -m pip install --disable-pip-version-check pywebview pyinstaller
+if ($LASTEXITCODE -ne 0) { throw 'Nelze nainstalovat závislosti vlastního JARVIS HUDu.' }
+& $python -m PyInstaller --noconfirm --clean --onefile --noconsole --name 'Jarvis-HUD' --icon $hudIcon --distpath $desktopPath --workpath (Join-Path $runtime 'pyinstaller-build') --specpath (Join-Path $runtime 'pyinstaller-spec') $hudSource
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $desktopPath 'Jarvis-HUD.exe'))) {
+    throw 'Vytvoření vlastního JARVIS HUDu selhalo.'
+}
+
 if (-not $SkipModel) {
     $ollama = Get-Command ollama -ErrorAction SilentlyContinue
     if ($ollama) {
@@ -152,6 +166,7 @@ $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershe
 $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$installRoot\spustit-jarvis.ps1`""
 $shortcut.WorkingDirectory = $installRoot
 $shortcut.Description = 'Spustit lokální JARVIS Beta HUD'
+$shortcut.IconLocation = "$(Join-Path $desktopPath 'Jarvis-HUD.exe'),0"
 $shortcut.Save()
 
 Write-Step 'Instalace dokončena. Spusťte zástupce JARVIS Beta na ploše.'

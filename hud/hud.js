@@ -1,7 +1,7 @@
 "use strict";
 
 const api = "http://127.0.0.1:8000";
-const controlApi = "http://127.0.0.1:8123";
+const controlApi = "http://127.0.0.1:8126";
 const reactor = document.getElementById("reactor");
 const activity = document.getElementById("activity");
 const messages = document.getElementById("messages");
@@ -19,9 +19,15 @@ let wakeStream;
 let muted = false;
 let activeRequest;
 let lastVoiceEventId = "";
+let voiceAudio = null;
 let conversation = [];
 let persistentRules = [];
+let projectMemory = { project: "OpenJarvis Beta", summary: "", entries: [] };
 let jarvisSettings = {};
+let agentRegistry = {
+  agents: [{ id: "jarvis", name: "JARVIS", role: "Koordinátor", model: "qwen3.5:4b", status: "ready" }],
+  active_agent_id: "jarvis"
+};
 let sidebarSection = "recent";
 const modelRouter = {
   default: "qwen3.5:4b",
@@ -45,7 +51,7 @@ function saveConversation() {
 function installFilmHud() {
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `/film-hud.css?version=18`;
+  link.href = `/film-hud.css?version=33`;
   document.head.append(link);
   const core = document.querySelector(".core-panel");
   if (core && !core.querySelector(".arc-label")) {
@@ -62,6 +68,18 @@ function installFilmHud() {
   systemButton?.closest(".panel")?.classList.add("views-panel");
   if (systemButton && !document.querySelector('.view-button[data-view="processes"]')) {
     systemButton.insertAdjacentHTML("afterend", '<button class="view-button" data-view="processes">PROCESY</button>');
+  }
+  const processesButton = document.querySelector('.view-button[data-view="processes"]');
+  if (processesButton && !document.getElementById("exit-hud")) {
+    processesButton.insertAdjacentHTML("afterend", '<button id="exit-hud" class="view-button exit-hud" type="button" aria-label="Ukončit JARVIS">UKONČIT</button>');
+    document.getElementById("exit-hud").addEventListener("click", () => {
+      stopPlayback();
+      if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.close();
+        return;
+      }
+      window.close();
+    });
   }
   installSidebar();
   if (!document.getElementById("processes-overlay")) {
@@ -101,6 +119,7 @@ function saveRecentChats(chats) {
 }
 
 function openSidebar(section = sidebarSection) {
+  closeAgentsSidebar();
   sidebarSection = section;
   document.body.classList.add("sidebar-open");
   document.getElementById("sidebar")?.setAttribute("aria-hidden", "false");
@@ -159,6 +178,26 @@ async function renderSidebar() {
         persistentRules = data.rules || [];
         renderSidebar();
       }));
+    } else if (sidebarSection === "agents") {
+      agentRegistry = await controlGet("/agents");
+      const agents = agentRegistry.agents || [];
+      const cards = agents.map(agent => {
+        const active = agent.id === agentRegistry.active_agent_id;
+        const paused = agent.status === "paused";
+        return `<article class="agent-card${active ? " active" : ""}"><button class="agent-select" data-agent-select="${safeText(agent.id)}" type="button"><b>${safeText(agent.name)}</b><small>${safeText(agent.role)}</small><span>${paused ? "POZASTAVEN" : agent.status === "working" ? "PRACUJE" : agent.status === "error" ? "CHYBA" : active ? "AKTIVNÍ" : "PŘIPRAVEN"}</span>${agent.current_task ? `<small>ÚKOL: ${safeText(agent.current_task)}</small>` : ""}${agent.last_result ? `<small>POSLEDNÍ: ${safeText(agent.last_result)}</small>` : ""}</button><button class="agent-toggle" data-agent-toggle="${safeText(agent.id)}" type="button" ${agent.id === "jarvis" || agent.status === "working" ? "disabled" : ""}>${paused ? "SPUSTIT" : "POZASTAVIT"}</button></article>`;
+      }).join("") || '<p class="empty-state">Žádní agenti nejsou nainstalováni.</p>';
+      content.innerHTML = `<button id="show-agent-catalog" class="primary-side" type="button">＋ INSTALOVAT AGENTA</button><p class="agent-note">Agent pracuje pouze v rozsahu svých pravidel a oprávnění.</p><div class="agent-list">${cards}</div>`;
+      content.querySelectorAll("[data-agent-select]").forEach(button => button.addEventListener("click", async () => {
+        agentRegistry = await controlPost("/agents/activate", { agent_id: button.dataset.agentSelect });
+        addActivity(`AKTIVNÍ AGENT: ${button.textContent.trim()}`);
+        renderSidebar();
+      }));
+      content.querySelectorAll("[data-agent-toggle]").forEach(button => button.addEventListener("click", async () => {
+        if (!button.dataset.agentToggle) return;
+        agentRegistry = await controlPost("/agents/toggle", { agent_id: button.dataset.agentToggle });
+        renderSidebar();
+      }));
+      document.getElementById("show-agent-catalog")?.addEventListener("click", () => renderAgentCatalog());
     } else {
       jarvisSettings = await controlGet("/settings");
       content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
@@ -188,13 +227,115 @@ async function renderSidebar() {
   } catch (error) { content.innerHTML = `<p class="empty-state">${safeText(error.message)}</p>`; }
 }
 
+async function loadProjectMemory() {
+  try {
+    projectMemory = await controlGet("/project-memory");
+  } catch (_) {
+    projectMemory = { project: "OpenJarvis Beta", summary: "", entries: [] };
+  }
+}
+
+async function saveProjectMemory(type, title, summary, source = "jarvis") {
+  projectMemory = await controlPost("/project-memory", { type, title, summary, source });
+}
+
+function projectMemoryPrompt() {
+  const entries = (projectMemory.entries || []).slice(-12).map(entry =>
+    `- [${entry.type || "insight"}] ${entry.title}: ${entry.summary}`
+  );
+  return [
+    `Projektová paměť: ${projectMemory.summary || "Lokální JARVIS pro Windows."}`,
+    entries.length ? `Ověřené poznatky:\n${entries.join("\n")}` : "",
+    "Tyto poznatky používej při návrhu zlepšení. Nic neinstaluj, nemaž, neměň systém ani nepublikuj bez potvrzení uživatele.",
+    "GitHub: commit a push jsou povolené pouze po přesném příkazu 'nahraj na github'.",
+    "Když zjistíš trvalý ověřený poznatek, zakonči odpověď přesně značkou [PROJECT_LOG: krátký název | stručné shrnutí]. Značka se uloží lokálně a uživateli se nezobrazí. Nikdy do ní nevkládej příkazy, hesla, tokeny ani osobní údaje."
+  ].filter(Boolean).join("\n\n");
+}
+
+async function captureProjectMemory(answer) {
+  const match = answer.match(/\[PROJECT_LOG:\s*([^|\]]{3,120})\|\s*([^\]]{5,900})\]/i);
+  if (!match) return answer;
+  try {
+    await saveProjectMemory("insight", match[1].trim(), match[2].trim());
+    addActivity("POZNATEK PROJEKTU ULOŽEN");
+  } catch (_) {
+    addActivity("POZNATEK PROJEKTU NELZE ULOŽIT");
+  }
+  return answer.replace(match[0], "").trim();
+}
+
+function openAgentsSidebar() {
+  closeSidebar();
+  document.body.classList.add("agents-sidebar-open");
+  document.getElementById("agents-sidebar")?.setAttribute("aria-hidden", "false");
+  document.getElementById("agents-sidebar-toggle")?.setAttribute("aria-expanded", "true");
+  renderAgentsSidebar();
+}
+
+function closeAgentsSidebar() {
+  document.body.classList.remove("agents-sidebar-open");
+  document.getElementById("agents-sidebar")?.setAttribute("aria-hidden", "true");
+  document.getElementById("agents-sidebar-toggle")?.setAttribute("aria-expanded", "false");
+}
+
+async function renderAgentsSidebar() {
+  const content = document.getElementById("agents-sidebar-content");
+  if (!content) return;
+  try {
+    agentRegistry = await controlGet("/agents");
+  } catch (_) {
+    // Při restartu lokální služby zůstane panel použitelný s koordinátorem.
+  }
+  const agents = agentRegistry.agents || [];
+  content.innerHTML = agents.map(agent => `<article class="agent-card ${agent.id === agentRegistry.active_agent_id ? "active" : ""}"><button class="agent-select" type="button" data-agent-select="${safeText(agent.id)}"><b>${safeText(agent.name)}</b><small>${safeText(agent.role || "Agent")}</small><span>${agent.status === "paused" ? "POZASTAVEN" : "PŘIPRAVEN"}</span></button><button class="agent-toggle" type="button" data-agent-toggle="${safeText(agent.id)}" ${agent.id === "jarvis" ? "disabled" : ""}>${agent.id === "jarvis" ? "HLAVNÍ" : agent.status === "paused" ? "SPUSTIT" : "PAUZA"}</button></article>`).join("") || '<p class="empty-state">Žádný agent není připraven.</p>';
+  content.querySelectorAll("[data-agent-select]").forEach(button => button.addEventListener("click", async () => {
+    try { agentRegistry = await controlPost("/agents/activate", { agent_id: button.dataset.agentSelect }); } catch (_) { agentRegistry.active_agent_id = button.dataset.agentSelect; }
+    renderAgentsSidebar();
+  }));
+  content.querySelectorAll("[data-agent-toggle]").forEach(button => button.addEventListener("click", async () => {
+    if (button.dataset.agentToggle === "jarvis") return;
+    try { agentRegistry = await controlPost("/agents/toggle", { agent_id: button.dataset.agentToggle }); } catch (_) {
+      const agent = agents.find(item => item.id === button.dataset.agentToggle);
+      if (agent) agent.status = agent.status === "paused" ? "ready" : "paused";
+    }
+    renderAgentsSidebar();
+  }));
+}
+
+async function renderAgentCatalog() {
+  const content = document.getElementById("sidebar-content");
+  if (!content) return;
+  try {
+    const catalog = (await controlGet("/agents/catalog")).agents || [];
+    content.innerHTML = `<button id="back-to-agents" class="primary-side" type="button">← ZPĚT NA AGENTY</button><p class="agent-note">Instalace vždy ukáže zdroj, licenci a oprávnění. Placené položky nelze koupit automaticky.</p><div class="agent-list">${catalog.map(agent => `<article class="agent-card catalog"><div><b>${safeText(agent.name)}</b><small>${safeText(agent.role)}</small><span>${safeText(agent.price || "Zdarma")} · ${safeText(agent.license || "Bez licence")}</span><small>ZDROJ: ${safeText(agent.source || "Neuveden")}</small><small>OPRÁVNĚNÍ: ${safeText((agent.permissions || []).join(", ") || "Žádná")}</small></div><button class="agent-install" data-agent-install="${safeText(agent.id)}" type="button">${agent.price_type === "paid" ? "ZOBRAZIT CENU" : "INSTALOVAT"}</button></article>`).join("")}</div>`;
+    document.getElementById("back-to-agents")?.addEventListener("click", () => renderSidebar());
+    content.querySelectorAll("[data-agent-install]").forEach(button => button.addEventListener("click", async () => {
+      const selected = catalog.find(agent => agent.id === button.dataset.agentInstall);
+      if (!selected) return;
+      if (selected.price_type === "paid") {
+        window.alert(`${selected.name} je placený agent. Cena: ${selected.price || "neuvedena"}. Dodavatel: ${selected.vendor || selected.source || "neuveden"}. Nákup a platbu musíte dokončit ručně.`);
+        return;
+      }
+      if (!window.confirm(`Nainstalovat bezplatného agenta ${selected.name}?\nZdroj: ${selected.source}\nOprávnění: ${(selected.permissions || []).join(", ")}`)) return;
+      agentRegistry = await controlPost("/agents/install", { catalog_id: selected.id, confirmed: true });
+      addActivity(`NAINSTALOVÁN AGENT: ${selected.name.toUpperCase()}`);
+      renderSidebar();
+    }));
+  } catch (error) {
+    content.innerHTML = `<p class="empty-state">${safeText(error.message)}</p>`;
+  }
+}
+
 function installSidebar() {
   if (document.getElementById("sidebar")) return;
-  document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Otevřít panel JARVISu" aria-expanded="false">☰ PANEL</button>');
-  document.body.insertAdjacentHTML("beforeend", '<aside id="sidebar" class="sidebar" aria-label="Lokální navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">LOKÁLNÍ · A: · BEZ TOKENŮ</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít panel"></button>');
+  document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="agents-sidebar-toggle" class="agents-sidebar-toggle view-button" type="button" aria-label="Otevřít levý panel agentů" aria-expanded="false">AGENTI</button><button id="sidebar-toggle" class="sidebar-toggle view-button" type="button" aria-label="Otevřít pravý panel JARVISu" aria-expanded="false">PANEL</button>');
+  document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Lokální navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">LOKÁLNÍ · A: · BEZ TOKENŮ</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
   document.getElementById("sidebar-toggle").addEventListener("click", () => openSidebar());
+  document.getElementById("agents-sidebar-toggle").addEventListener("click", () => openAgentsSidebar());
   document.getElementById("sidebar-close").addEventListener("click", closeSidebar);
+  document.getElementById("agents-sidebar-close").addEventListener("click", closeAgentsSidebar);
   document.getElementById("sidebar-backdrop").addEventListener("click", closeSidebar);
+  document.getElementById("agents-sidebar-backdrop").addEventListener("click", closeAgentsSidebar);
   document.querySelectorAll(".sidebar-nav button").forEach(button => button.addEventListener("click", () => openSidebar(button.dataset.section)));
   document.getElementById("new-chat").addEventListener("click", () => {
     if (conversation.length) saveRecentChats([{ title: conversation.at(-1)?.content?.slice(0, 48) || "Nový chat", time: new Date().toLocaleString("cs-CZ"), messages: conversation }, ...recentChats()]);
@@ -255,6 +396,7 @@ function speak(text) {
 
 function stopPlayback() {
   window.speechSynthesis?.cancel();
+  if (voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; voiceAudio = null; }
 }
 
 function stopCurrentRun() {
@@ -262,13 +404,106 @@ function stopCurrentRun() {
   activeRequest?.abort();
   activeRequest = null;
   stopButton.classList.remove("active");
+  controlPost("/voice/stop", {}).catch(() => {});
   setActivity("TAH ZASTAVEN");
   addActivity("PŘERUŠENO UŽIVATELEM");
+}
+
+function playVoiceAudio(audioUrl, fallbackText) {
+  window.speechSynthesis?.cancel();
+  if (voiceAudio) { voiceAudio.pause(); voiceAudio.currentTime = 0; }
+  if (!audioUrl) { speak(fallbackText); return; }
+  voiceAudio = new Audio(`${audioUrl}?time=${Date.now()}`);
+  voiceAudio.addEventListener("error", () => speak(fallbackText), { once: true });
+  voiceAudio.play().catch(() => speak(fallbackText));
+}
+
+async function getActiveAgent() {
+  try {
+    agentRegistry = await controlGet("/agents");
+    return agentRegistry.agents.find(agent => agent.id === agentRegistry.active_agent_id) || agentRegistry.agents[0] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function agentSystemPrompt(agent) {
+  return [
+    agent ? `Aktivní agent: ${agent.name}.` : "Aktivní agent: JARVIS.",
+    agent?.role ? `Role: ${agent.role}.` : "",
+    agent?.rules?.length ? `Pravidla agenta:\n${agent.rules.map(rule => `- ${rule}`).join("\n")}` : "",
+    persistentRules.length ? `Trvalá uživatelská pravidla:\n${persistentRules.map(rule => `- ${rule}`).join("\n")}` : "",
+    projectMemoryPrompt(),
+  ].filter(Boolean).join("\n\n");
+}
+
+async function dispatchToAgents(command) {
+  const match = command.match(/^(?:agenti|všichni agenti|vsichni agenti)\s*[:,-]\s*(.+)$/i);
+  if (!match) return false;
+  const task = match[1].trim();
+  agentRegistry = await controlGet("/agents");
+  const agents = (agentRegistry.agents || []).filter(agent => agent.status === "ready");
+  if (!agents.length) {
+    addMessage(command, "user");
+    addMessage("Pro souběžnou práci není připraven žádný agent.", "jarvis");
+    return true;
+  }
+  if (!window.confirm(`Spustit úkol paralelně pro ${agents.length} agentů?\n${task}`)) return true;
+  addMessage(command, "user");
+  const assignment = await controlPost("/agents/tasks", { task, agent_ids: agents.map(agent => agent.id) });
+  addActivity(`PARALELNÍ ÚKOL: ${agents.length} AGENTŮ`);
+  await Promise.all(assignment.agents.map(async agent => {
+    try {
+      const response = await fetch(`${api}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: agent.model || modelRouter.default,
+          messages: [{ role: "system", content: agentSystemPrompt(agent) }, { role: "user", content: task }],
+          stream: false,
+        }),
+      });
+      if (!response.ok) throw new Error(`Server vrátil ${response.status}`);
+      const data = await response.json();
+      const answer = await captureProjectMemory(data.choices?.[0]?.message?.content || "Agent nevrátil odpověď.");
+      addMessage(`[${agent.name}]\n${answer}`, "jarvis");
+      await controlPost("/agents/tasks/complete", { task_id: assignment.task_id, agent_id: agent.id, success: true, summary: answer });
+    } catch (error) {
+      addMessage(`[${agent.name}] Úkol selhal: ${error.message}`, "jarvis");
+      await controlPost("/agents/tasks/complete", { task_id: assignment.task_id, agent_id: agent.id, success: false, summary: error.message });
+    }
+  }));
+  agentRegistry = await controlGet("/agents");
+  addActivity("PARALELNÍ ÚKOL DOKONČEN");
+  return true;
+}
+
+async function installAgentFromCommand(command) {
+  const match = command.match(/^(?:jarvisi,?\s*)?(?:nainstaluj|instaluj)\s+(?:mi\s+)?(?:bezplatn(?:ého|y|ou)\s+)?agenta?\s*(?:pro|na)?\s*(.*)$/i);
+  if (!match) return false;
+  addMessage(command, "user");
+  const query = match[1].trim().toLowerCase();
+  const catalog = (await controlGet("/agents/catalog")).agents || [];
+  const selected = catalog.find(agent => `${agent.name} ${agent.role} ${agent.id}`.toLowerCase().includes(query)) || catalog.find(agent => agent.price_type === "free");
+  if (!selected) {
+    addMessage("V lokálním katalogu není vhodný agent.", "jarvis");
+    return true;
+  }
+  if (selected.price_type === "paid") {
+    addMessage(`${selected.name} je placený agent. Cena: ${selected.price || "neuvedena"}. Nákup musíte ručně potvrdit a dokončit u dodavatele.`, "jarvis");
+    return true;
+  }
+  if (!window.confirm(`Nainstalovat bezplatného agenta ${selected.name}?\nZdroj: ${selected.source}\nOprávnění: ${(selected.permissions || []).join(", ")}`)) return true;
+  agentRegistry = await controlPost("/agents/install", { catalog_id: selected.id, confirmed: true });
+  addMessage(`Agent ${selected.name} je nainstalovaný a připravený v levém panelu Agentů.`, "jarvis");
+  addActivity(`NAINSTALOVÁN AGENT: ${selected.name.toUpperCase()}`);
+  return true;
 }
 
 async function sendCommand(text) {
   const command = text.trim();
   if (!command) return;
+  await loadProjectMemory();
   if (/^(?:otevři|otevri|ukaž|ukaz) (?:panel|postranní panel|boční panel)$/i.test(command)) {
     openSidebar();
     addMessage(command, "user");
@@ -300,6 +535,40 @@ async function sendCommand(text) {
     input.value = "";
     return;
   }
+  const projectNote = command.match(/^(?:zapiš|zapis) (?:do )?(?:projektové paměti|projektove pameti)\s*[:,-]?\s*(.{5,900})$/i);
+  if (projectNote) {
+    try {
+      await saveProjectMemory("user_preference", "Poznatek uživatele", projectNote[1].trim(), "user");
+      addMessage(command, "user");
+      addMessage("Poznatek byl uložen do lokální projektové paměti.", "jarvis");
+      addActivity("PROJEKTOVÝ POZNATEK ULOŽEN");
+    } catch (error) {
+      addMessage(`Poznatek nelze uložit: ${error.message}`, "jarvis");
+    }
+    input.value = "";
+    return;
+  }
+  try {
+    if (await dispatchToAgents(command)) {
+      input.value = "";
+      return;
+    }
+  } catch (error) {
+    addMessage(`Souběžný úkol nelze spustit: ${error.message}`, "jarvis");
+    input.value = "";
+    return;
+  }
+  try {
+    if (await installAgentFromCommand(command)) {
+      input.value = "";
+      return;
+    }
+  } catch (error) {
+    addMessage(`Agenta nelze nainstalovat: ${error.message}`, "jarvis");
+    input.value = "";
+    return;
+  }
+  const activeAgent = await getActiveAgent();
   const selectedModel = selectModel(command);
   addMessage(command, "user");
   conversation.push({ role: "user", content: command });
@@ -308,17 +577,17 @@ async function sendCommand(text) {
   input.value = "";
   activeRequest = new AbortController();
   stopButton.classList.add("active");
-  addActivity(`MODEL ${selectedModel}: ${command.slice(0, 55)}`);
+  addActivity(`AGENT ${activeAgent?.name || "JARVIS"} · MODEL ${selectedModel}: ${command.slice(0, 42)}`);
   try {
     const response = await fetch(`${api}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: activeRequest.signal,
-      body: JSON.stringify({ model: selectedModel, messages: [{ role: "system", content: persistentRules.length ? `Trvalá uživatelská pravidla (dodržuj v rámci bezpečného a zákonného použití):\n${persistentRules.map(rule => `- ${rule}`).join("\n")}` : "" }, ...conversation], stream: false })
+      body: JSON.stringify({ model: activeAgent?.model || selectedModel, messages: [{ role: "system", content: agentSystemPrompt(activeAgent) }, ...conversation], stream: false })
     });
     if (!response.ok) throw new Error(`Server vrátil ${response.status}`);
     const data = await response.json();
-    const answer = data.choices?.[0]?.message?.content || "Odpověď nebyla vrácena.";
+    const answer = await captureProjectMemory(data.choices?.[0]?.message?.content || "Odpověď nebyla vrácena.");
     addMessage(answer, "jarvis");
     conversation.push({ role: "assistant", content: answer });
     saveConversation();
@@ -450,7 +719,14 @@ function recordFollowUpCommand() {
 reactor.addEventListener("click", () => recorder?.state === "recording" ? recorder.stop() : startRecording());
 form.addEventListener("submit", event => { event.preventDefault(); sendCommand(input.value); });
 wakeToggle.addEventListener("click", () => {
-  addMessage("Trvalý wake-word zajišťuje samostatný lokální klient. Je aktivní po spuštění Jarvise.", "jarvis");
+  const enabled = wakeToggle.getAttribute("aria-pressed") !== "true";
+  controlPost("/voice/state", { enabled }).then(state => {
+    wakeToggle.setAttribute("aria-pressed", String(state.enabled));
+    wakeToggle.textContent = state.enabled ? "„HEY JARVIS“ AKTIVNÍ" : "„HEY JARVIS“ NEAKTIVNÍ";
+    voiceState.textContent = state.enabled ? "MIKROFON: LOKÁLNÍ WAKE-WORD" : "MIKROFON: VYPNUT";
+    voiceMeter.style.width = state.enabled ? "100%" : "10%";
+    if (!state.enabled) stopPlayback();
+  }).catch(error => addMessage(`Hlasový přepínač: ${error.message}`, "jarvis"));
 });
 muteButton.addEventListener("click", () => {
   muted = !muted;
@@ -577,7 +853,7 @@ async function pollVoiceEvents() {
       setActivity("ZPRACOVÁVÁM HLASOVÝ PŘÍKAZ", "thinking");
     } else if (event.type === "voice_answer") {
       addMessage(event.text, "jarvis");
-      speak(event.text);
+      playVoiceAudio(event.audio_url, event.text);
       setActivity("ČEKÁM NA HEY JARVIS", "listening");
       addActivity("HLASOVÁ ODPOVĎ DOKONČENA");
     } else if (event.type === "error") {
@@ -591,12 +867,16 @@ setInterval(refreshHealth, 15000);
 setInterval(pollVoiceEvents, 500);
 setInterval(refreshHardware, 2000);
 installFilmHud();
-setTimeout(() => { document.body.className = "booted"; refreshHealth(); refreshHardware(); loadRules(); }, 90);
+setTimeout(() => { document.body.className = "booted"; refreshHealth(); refreshHardware(); loadRules(); loadProjectMemory(); }, 90);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/service-worker.js").catch(() => {});
 }
 
 function setHudView(view) {
+  if (view !== "chat") {
+    closeSidebar();
+    closeAgentsSidebar();
+  }
   document.body.dataset.view = view;
   localStorage.setItem("jarvis-hud-view", view);
   const leftRail = document.querySelector(".left-rail");
