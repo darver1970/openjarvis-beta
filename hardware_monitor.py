@@ -18,10 +18,14 @@ from typing import Any
 
 import psutil
 
+from telemetry_extensions import collect_extended
+
 
 ROOT = Path(__file__).resolve().parent
 HUD_STATUS = ROOT / "hud" / "hardware-status.json"
 LOG_PATH = ROOT / "runtime" / "hardware-monitor.log"
+TELEMETRY_SETTINGS_PATH = ROOT / "runtime" / "telemetry-settings.json"
+TELEMETRY_DEFAULTS_PATH = ROOT / "defaults" / "telemetry-settings.json"
 SENSOR_URL = "http://127.0.0.1:8085/data.json"
 POLL_SECONDS = 2
 PROCESS_CPU_SAMPLES: dict[int, tuple[float, float]] = {}
@@ -42,6 +46,30 @@ def write_status(payload: dict[str, Any]) -> None:
     temporary = HUD_STATUS.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.replace(temporary, HUD_STATUS)
+
+
+def load_telemetry_settings() -> dict[str, Any]:
+    """Načte oddělené lokální nastavení bez závislosti na řídicím serveru."""
+    fallback = {
+        "enabled": True, "sampling_seconds": 2,
+        "features": {
+            "process_monitoring": True, "process_disk_io": True,
+            "process_network_connections": True, "process_gpu": True,
+            "hardware_sensors": True, "temperatures": True, "process_details": True,
+        },
+    }
+    source = TELEMETRY_SETTINGS_PATH if TELEMETRY_SETTINGS_PATH.is_file() else TELEMETRY_DEFAULTS_PATH
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return fallback
+        features = fallback["features"].copy()
+        if isinstance(data.get("features"), dict):
+            features.update({key: value for key, value in data["features"].items() if isinstance(value, bool)})
+        interval = int(data.get("sampling_seconds", 2))
+        return {"enabled": data.get("enabled", True) is True, "sampling_seconds": interval if interval in {1, 2, 5, 10} else 2, "features": features}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return fallback
 
 
 def number(value: Any) -> float | None:
@@ -155,23 +183,30 @@ def gpu_usage_by_pid() -> dict[int, float]:
     return usage
 
 
-def native_processes() -> list[dict[str, Any]]:
+def native_processes(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Vrátí všechny procesy s CPU, RAM, diskem, GPU a síťovými spojeními."""
+    features = (settings or load_telemetry_settings()).get("features", {})
+    if features.get("process_monitoring", True) is not True:
+        return []
     now = time.monotonic()
     logical_processors = max(os.cpu_count() or 1, 1)
     total_memory = max(psutil.virtual_memory().total, 1)
-    gpu_usage = gpu_usage_by_pid()
+    gpu_usage = gpu_usage_by_pid() if features.get("process_gpu", True) else {}
     connections: dict[int, int] = {}
-    try:
-        for connection in psutil.net_connections(kind="inet"):
-            if connection.pid:
-                connections[connection.pid] = connections.get(connection.pid, 0) + 1
-    except (psutil.Error, OSError):
-        pass
+    if features.get("process_network_connections", True):
+        try:
+            for connection in psutil.net_connections(kind="inet"):
+                if connection.pid:
+                    connections[connection.pid] = connections.get(connection.pid, 0) + 1
+        except (psutil.Error, OSError):
+            pass
 
     active_pids: set[int] = set()
     output: list[dict[str, Any]] = []
-    for process in psutil.process_iter(["pid", "name", "exe", "username", "status", "memory_info", "cpu_times", "num_threads", "ppid"]):
+    attributes = ["pid", "name", "status", "memory_info", "cpu_times", "num_threads", "ppid"]
+    if features.get("process_details", True):
+        attributes.extend(["exe", "username"])
+    for process in psutil.process_iter(attributes):
         try:
             info = process.info
             pid = int(info["pid"])
@@ -188,11 +223,12 @@ def native_processes() -> list[dict[str, Any]]:
 
             memory_bytes = int(getattr(info.get("memory_info"), "rss", 0) or 0)
             read_bytes = write_bytes = 0
-            try:
-                io = process.io_counters()
-                read_bytes, write_bytes = int(io.read_bytes), int(io.write_bytes)
-            except (psutil.AccessDenied, AttributeError, OSError):
-                pass
+            if features.get("process_disk_io", True):
+                try:
+                    io = process.io_counters()
+                    read_bytes, write_bytes = int(io.read_bytes), int(io.write_bytes)
+                except (psutil.AccessDenied, AttributeError, OSError):
+                    pass
             previous_io = PROCESS_IO_SAMPLES.get(pid)
             read_rate = write_rate = 0.0
             if previous_io and now > previous_io[2]:
@@ -226,10 +262,10 @@ def native_processes() -> list[dict[str, Any]]:
                 "network_connections": network_connections,
                 "dominant_component": dominant_component,
                 "status": str(info.get("status") or "unknown").upper(),
-                "handles": process.num_handles() if hasattr(process, "num_handles") else 0,
+                "handles": process.num_handles() if features.get("process_details", True) and hasattr(process, "num_handles") else 0,
                 "threads": int(info.get("num_threads") or 0),
-                "username": str(info.get("username") or ""),
-                "executable": str(info.get("exe") or ""),
+                "username": str(info.get("username") or "") if features.get("process_details", True) else "",
+                "executable": str(info.get("exe") or "") if features.get("process_details", True) else "",
             })
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError, TypeError, ValueError):
             continue
@@ -284,7 +320,15 @@ def sensor_value_all(sensors: list[dict[str, Any]], words: tuple[str, ...], kind
 
 def snapshot() -> dict[str, Any]:
     """Sestaví bezpečný snímek bez smyšlených teplot."""
-    sensors = fetch_sensors()
+    settings = load_telemetry_settings()
+    features = settings.get("features", {})
+    if not settings.get("enabled", True):
+        return {
+            "updated_at": datetime.now(timezone.utc).isoformat(), "source": "Telemetrie vypnuta v nastavení",
+            "online": False, "disabled": True, "message": "TELEMETRIE VYPNUTA",
+            "cpu": {}, "gpu": {}, "ram": {}, "performance": {}, "temperatures": [], "disks": [], "processes": [], "system_usage": {},
+        }
+    sensors = fetch_sensors() if features.get("hardware_sensors", True) else []
     cpu_temp = choose(sensors, ("cpu", "package", "tdie", "core"), ("temperature",))
     gpu_temp = choose(sensors, ("gpu", "radeon", "nvidia", "geforce"), ("temperature",))
     cpu_load = choose(sensors, ("cpu", "total"), ("load",))
@@ -298,7 +342,7 @@ def snapshot() -> dict[str, Any]:
         (sensor["value"] for sensor in sensors if sensor["type"] == "load" and "network utilization" in sensor["name"].lower() and sensor["value"] is not None),
         default=None,
     )
-    temperatures = [sensor for sensor in sensors if sensor["type"] == "temperature" and sensor["value"] is not None]
+    temperatures = [sensor for sensor in sensors if features.get("temperatures", True) and sensor["type"] == "temperature" and sensor["value"] is not None]
     performance = {
         "cpu_clock_mhz": sensor_value(sensors, ("cpu", "cores"), ("clock",)),
         "cpu_power_w": sensor_value(sensors, ("cpu", "package"), ("power",)),
@@ -314,6 +358,12 @@ def snapshot() -> dict[str, Any]:
         system_usage["disk_percent"] = round(disk_activity, 1)
     if network_utilization is not None:
         system_usage["network_percent"] = round(network_utilization, 1)
+    disks = native_disks() if features.get("hardware_sensors", True) else []
+    processes = native_processes(settings)
+    extended = collect_extended(
+        features, sensors, processes, system_usage, disks,
+        gpu_load["value"] if gpu_load else None,
+    )
     return {
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "source": "Libre Hardware Monitor / localhost",
@@ -323,9 +373,10 @@ def snapshot() -> dict[str, Any]:
         "ram": {"load": ram_load and ram_load["value"]},
         "performance": performance,
         "temperatures": temperatures[:20],
-        "disks": native_disks(),
-        "processes": native_processes(),
+        "disks": disks,
+        "processes": processes,
         "system_usage": system_usage,
+        "extended": extended,
     }
 
 
@@ -335,17 +386,17 @@ def main() -> None:
     while True:
         try:
             write_status(snapshot())
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError) as error:
-            logging.warning("LHM není připraven: %s", error)
+        except Exception as error:
+            logging.exception("Sběrač telemetrie pokračuje po chybě modulu: %s", error)
             write_status({
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "source": "Libre Hardware Monitor / localhost",
                 "online": False,
                 "message": "ČEKÁM NA SENZORY",
                 "cpu": {}, "gpu": {}, "ram": {}, "performance": {}, "temperatures": [],
-                "disks": native_disks(), "processes": native_processes(), "system_usage": system_usage_snapshot(),
+                "disks": native_disks(), "processes": native_processes(load_telemetry_settings()), "system_usage": system_usage_snapshot(),
             })
-        time.sleep(POLL_SECONDS)
+        time.sleep(load_telemetry_settings().get("sampling_seconds", POLL_SECONDS))
 
 
 if __name__ == "__main__":

@@ -46,8 +46,8 @@ $pythonPath = "$root\src\.venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw "Python prostředí nebylo nalezeno. Nejdříve spusťte install.ps1."
 }
-if (-not (Test-Port 5173)) {
-    Start-Process -FilePath $pythonPath -ArgumentList "-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
+if (-not (Test-Port 5174)) {
+    Start-Process -FilePath $pythonPath -ArgumentList "-m", "http.server", "5174", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
     Start-Sleep -Seconds 1
 }
 # Senzory CPU/GPU/disků: program, konfigurace, log i API zůstávají v instalační složce.

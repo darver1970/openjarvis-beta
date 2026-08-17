@@ -1,6 +1,7 @@
 """Lokální API pro trvalá pravidla JARVISu uložená v instalační složce."""
 
 import json
+import csv
 import logging
 import os
 import re
@@ -36,6 +37,9 @@ AGENTS_PATH = ROOT / "runtime" / "jarvis-agents.json"
 DEFAULT_AGENTS_PATH = ROOT / "defaults" / "jarvis-agents.json"
 AGENT_CATALOG_PATH = ROOT / "defaults" / "jarvis-agent-catalog.json"
 PROJECT_MEMORY_PATH = ROOT / "runtime" / "jarvis-project-memory.json"
+TELEMETRY_SETTINGS_PATH = ROOT / "runtime" / "telemetry-settings.json"
+TELEMETRY_OUTPUT_DIR = ROOT / "runtime" / "telemetry"
+HARDWARE_STATUS_PATH = ROOT / "hud" / "hardware-status.json"
 EXECUTIONS_DIR = ROOT / "runtime" / "executions"
 LOG_PATH = ROOT / "runtime" / "jarvis-control.log"
 PROJECT_MEMORY_LOCK = threading.Lock()
@@ -51,6 +55,96 @@ PROVIDERS: dict[str, dict[str, str]] = {
     "openrouter_free": {"label": "OpenRouter Free", "model": "openrouter/free"},
     "automatic": {"label": "Automaticky", "model": "bezplatný online router, pak lokální"},
 }
+
+TELEMETRY_CATEGORIES = [
+    {"id": "core", "label": "Základní měření", "description": "Nízká režie; doporučené pro běžný provoz."},
+    {"id": "extended", "label": "Rozšířená diagnostika", "description": "Podrobnější údaje o procesech a komponentách."},
+    {"id": "history", "label": "Historie a upozornění", "description": "Dlouhodobé trendy, limity a automatická upozornění."},
+    {"id": "security", "label": "Síť a bezpečnost", "description": "Kontrola spojení, podpisů a neobvyklého chování."},
+    {"id": "gaming", "label": "Hry a grafika", "description": "FPS, frametime a detailní údaje GPU."},
+    {"id": "reporting", "label": "Výstupy a porovnání", "description": "Exporty, diagnostické snímky a porovnání běhů."},
+]
+
+TELEMETRY_FEATURES = [
+    {"id": "process_monitoring", "category": "core", "label": "Seznam procesů", "description": "CPU, paměť a stav všech procesů.", "status": "active", "default": True},
+    {"id": "process_disk_io", "category": "core", "label": "Disk procesů", "description": "Rychlost čtení a zápisu každého procesu.", "status": "active", "default": True},
+    {"id": "process_network_connections", "category": "core", "label": "Síťová spojení procesů", "description": "Počet aktivních internetových spojení podle PID.", "status": "active", "default": True},
+    {"id": "process_gpu", "category": "core", "label": "GPU procesů", "description": "Vytížení GPU enginů podle procesu.", "status": "active", "default": True},
+    {"id": "hardware_sensors", "category": "core", "label": "Hardwarové senzory", "description": "CPU, RAM, GPU, disky, síť a jejich souhrnné zatížení.", "status": "active", "default": True},
+    {"id": "temperatures", "category": "core", "label": "Teploty", "description": "Živé teploty dostupné přes LibreHardwareMonitor.", "status": "active", "default": True},
+    {"id": "process_details", "category": "core", "label": "Podrobnosti procesu", "description": "Uživatel, cesta, PID, vlákna a handly.", "status": "active", "default": True},
+    {"id": "process_grouping", "category": "core", "label": "Seskupování aplikací", "description": "Spojí stejné procesy do rozbalitelných skupin.", "status": "active", "default": True},
+    {"id": "process_termination", "category": "core", "label": "Ukončení procesu", "description": "Povolí tlačítko Ukončit úlohu s potvrzením.", "status": "active", "default": True},
+    {"id": "process_tree", "category": "extended", "label": "Strom procesů", "description": "Rodičovské a podřízené procesy v hierarchii.", "status": "prepared", "default": False},
+    {"id": "windows_services", "category": "extended", "label": "Služby procesu", "description": "Přiřazení služeb Windows k hostitelským procesům.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "startup_impact", "category": "extended", "label": "Dopad po spuštění", "description": "Čas startu Windows a dopad automaticky spouštěných aplikací.", "status": "prepared", "default": False},
+    {"id": "energy_usage", "category": "extended", "label": "Spotřeba energie", "description": "Příkon a energetický dopad procesů a komponent.", "status": "prepared", "default": False},
+    {"id": "page_faults", "category": "extended", "label": "Stránkování paměti", "description": "Hard faults, cache a zatížení stránkovacího souboru.", "status": "prepared", "default": False},
+    {"id": "smart_storage", "category": "extended", "label": "SMART a životnost disků", "description": "Zdraví, životnost SSD a množství zapsaných dat.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "fan_voltage_clocks", "category": "extended", "label": "Ventilátory, napětí a frekvence", "description": "Rozšířené senzory chlazení a taktování.", "status": "prepared", "default": False},
+    {"id": "history_charts", "category": "history", "label": "Historické grafy", "description": "Minuty, hodiny a dny vývoje vytížení a teplot.", "status": "prepared", "default": False},
+    {"id": "threshold_alerts", "category": "history", "label": "Upozornění na limity", "description": "Teploty, RAM, disk, síť a dlouhodobé vysoké vytížení.", "status": "prepared", "default": False},
+    {"id": "anomaly_detection", "category": "history", "label": "Detekce neobvyklého stavu", "description": "Porovná aktuální chování s běžným stavem počítače.", "status": "prepared", "default": False},
+    {"id": "memory_leak_detection", "category": "history", "label": "Úniky paměti", "description": "Sleduje dlouhodobě rostoucí spotřebu RAM procesu.", "status": "prepared", "default": False},
+    {"id": "thermal_throttling", "category": "history", "label": "Throttling", "description": "Rozpozná teplotní nebo výkonové omezení CPU a GPU.", "status": "prepared", "default": False},
+    {"id": "etw_network_speed", "category": "security", "label": "Rozšířená síť procesu", "description": "Lokální přehled spojení procesu; dostupnost systémových detailů závisí na oprávnění Windows.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "connection_details", "category": "security", "label": "Cílové adresy a porty", "description": "IP adresy, porty, protokoly a stav spojení procesů.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "publisher_signatures", "category": "security", "label": "Podpis a vydavatel", "description": "Ověření digitálního podpisu spustitelného souboru.", "status": "prepared", "default": False},
+    {"id": "file_hashes", "category": "security", "label": "Kontrolní hashe", "description": "Lokální SHA-256 identifikace programů.", "status": "prepared", "default": False},
+    {"id": "open_files_registry", "category": "security", "label": "Otevřené soubory a registry", "description": "Soubory, knihovny a registry používané procesem.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "remote_location", "category": "security", "label": "Typ vzdálené sítě", "description": "Lokální rozlišení veřejné, privátní nebo neznámé vzdálené IP adresy.", "status": "prepared", "default": False},
+    {"id": "fps_monitoring", "category": "gaming", "label": "FPS", "description": "Snímková frekvence právě spuštěné hry.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "frametime_monitoring", "category": "gaming", "label": "Frametime a propady", "description": "Plynulost vykreslování a detekce záseků.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "gpu_vram_details", "category": "gaming", "label": "VRAM a GPU enginy", "description": "Dedikovaná a sdílená VRAM, 3D, Copy, Compute a Video.", "status": "prepared", "default": False},
+    {"id": "game_session_compare", "category": "gaming", "label": "Porovnání herního běhu", "description": "Porovná výkon před spuštěním, během hry a po ukončení.", "status": "prepared", "default": False},
+    {"id": "diagnostic_export", "category": "reporting", "label": "Export JSON a CSV", "description": "Lokální export bez API klíčů a osobních tajemství.", "status": "prepared", "default": False},
+    {"id": "diagnostic_snapshots", "category": "reporting", "label": "Diagnostické snímky", "description": "Uloží stav počítače pro pozdější porovnání.", "status": "prepared", "default": False},
+    {"id": "before_after_compare", "category": "reporting", "label": "Porovnání před a po", "description": "Změny vytížení způsobené zvoleným programem.", "status": "prepared", "default": False},
+    {"id": "jarvis_usage_separation", "category": "reporting", "label": "Spotřeba samotného Jarvise", "description": "Oddělí procesy Jarvise od ostatních programů.", "status": "prepared", "default": False},
+    {"id": "process_priority_affinity", "category": "extended", "label": "Priorita a afinita CPU", "description": "Zobrazení a bezpečná změna priority nebo přiřazených jader.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "process_suspend_resume", "category": "extended", "label": "Pozastavit a pokračovat", "description": "Dočasné pozastavení procesu bez jeho ukončení.", "status": "prepared", "default": False, "requires_admin": True},
+    {"id": "user_sessions", "category": "extended", "label": "Vytížení podle uživatele", "description": "Souhrn prostředků podle přihlášených účtů Windows.", "status": "prepared", "default": False},
+    {"id": "application_icons", "category": "extended", "label": "Ikony a názvy aplikací", "description": "Načte originální ikonu a popis programu z EXE souboru.", "status": "prepared", "default": False},
+    {"id": "disk_queue_latency", "category": "extended", "label": "Odezva a fronta disku", "description": "Latence operací a délka fronty každého fyzického disku.", "status": "prepared", "default": False},
+    {"id": "network_adapter_split", "category": "extended", "label": "Síť podle adaptéru", "description": "Oddělí Ethernet, Wi-Fi, VPN, LAN a internetový provoz.", "status": "prepared", "default": False},
+    {"id": "fan_curves", "category": "extended", "label": "Křivky ventilátorů", "description": "Historie otáček podle teploty; bez automatické změny BIOSu.", "status": "prepared", "default": False},
+    {"id": "sustained_disk_writes", "category": "history", "label": "Dlouhodobé zápisy na disk", "description": "Upozorní na proces trvale zapisující velké množství dat.", "status": "prepared", "default": False},
+    {"id": "bottleneck_advice", "category": "history", "label": "Lokální hledání úzkého hrdla", "description": "Určí, zda výkon omezuje CPU, RAM, disk, síť nebo GPU.", "status": "prepared", "default": False},
+    {"id": "unsigned_process_alerts", "category": "security", "label": "Upozornění na nepodepsané procesy", "description": "Zvýrazní nové programy bez platného digitálního podpisu.", "status": "prepared", "default": False},
+    {"id": "safe_close_before_kill", "category": "security", "label": "Bezpečné zavření před ukončením", "description": "Nejdříve požádá aplikaci o zavření, teprve potom nabídne vynucení.", "status": "prepared", "default": False},
+    {"id": "second_monitor_dashboard", "category": "reporting", "label": "Panel pro druhý monitor", "description": "Samostatný celoobrazovkový přehled výkonu a grafů.", "status": "prepared", "default": False},
+]
+
+# Každá funkce je navázaná na konkrétní lokální sběrač nebo bezpečnou akci.
+TELEMETRY_IMPLEMENTATIONS = {
+    **{key: "hardware_monitor" for key in (
+        "process_monitoring", "process_disk_io", "process_network_connections", "process_gpu",
+        "hardware_sensors", "temperatures", "process_details", "process_grouping", "process_tree",
+        "windows_services", "startup_impact", "energy_usage", "page_faults", "smart_storage",
+        "fan_voltage_clocks", "user_sessions", "application_icons", "disk_queue_latency",
+        "network_adapter_split", "gpu_vram_details", "jarvis_usage_separation",
+    )},
+    **{key: "history_engine" for key in (
+        "history_charts", "threshold_alerts", "anomaly_detection", "memory_leak_detection",
+        "thermal_throttling", "fan_curves", "sustained_disk_writes", "bottleneck_advice",
+        "game_session_compare",
+    )},
+    **{key: "security_collector" for key in (
+        "etw_network_speed", "connection_details", "publisher_signatures", "file_hashes",
+        "open_files_registry", "remote_location", "unsigned_process_alerts",
+    )},
+    "fps_monitoring": "presentmon", "frametime_monitoring": "presentmon",
+    **{key: "control_api" for key in (
+        "process_termination", "process_priority_affinity", "process_suspend_resume", "safe_close_before_kill",
+        "diagnostic_export", "diagnostic_snapshots", "before_after_compare",
+    )},
+    "second_monitor_dashboard": "native_hud",
+}
+for _telemetry_feature in TELEMETRY_FEATURES:
+    implementation = TELEMETRY_IMPLEMENTATIONS.get(str(_telemetry_feature.get("id")))
+    if implementation:
+        _telemetry_feature["status"] = "active"
+        _telemetry_feature["implementation"] = implementation
 
 
 class ProviderQuotaError(ValueError):
@@ -86,6 +180,175 @@ def save_document(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def telemetry_default_settings() -> dict[str, Any]:
+    """Sestaví bezpečné výchozí nastavení; náročné připravené funkce jsou vypnuté."""
+    return {
+        "enabled": True,
+        "sampling_seconds": 2,
+        "features": {feature["id"]: bool(feature["default"]) for feature in TELEMETRY_FEATURES},
+    }
+
+
+def load_telemetry_settings() -> dict[str, Any]:
+    """Načte telemetrii se sloučením nových voleb do staršího nastavení."""
+    defaults = telemetry_default_settings()
+    data = load_document(TELEMETRY_SETTINGS_PATH, "features")
+    settings = {
+        "enabled": data.get("enabled", defaults["enabled"]) is True,
+        "sampling_seconds": int(data.get("sampling_seconds", defaults["sampling_seconds"])),
+        "features": defaults["features"].copy(),
+    }
+    if settings["sampling_seconds"] not in {1, 2, 5, 10}:
+        settings["sampling_seconds"] = 2
+    incoming = data.get("features", {})
+    if isinstance(incoming, dict):
+        for feature_id in settings["features"]:
+            if feature_id in incoming and isinstance(incoming[feature_id], bool):
+                settings["features"][feature_id] = incoming[feature_id]
+    return settings
+
+
+def telemetry_settings_payload() -> dict[str, Any]:
+    settings = load_telemetry_settings()
+    return {"settings": settings, "categories": TELEMETRY_CATEGORIES, "features": TELEMETRY_FEATURES}
+
+
+def update_telemetry_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Uloží pouze známé booleany a povolené intervaly vzorkování."""
+    settings = load_telemetry_settings()
+    if "enabled" in data:
+        if not isinstance(data["enabled"], bool):
+            raise ValueError("Hlavní přepínač telemetrie musí být ano nebo ne.")
+        settings["enabled"] = data["enabled"]
+    if "sampling_seconds" in data:
+        interval = int(data["sampling_seconds"])
+        if interval not in {1, 2, 5, 10}:
+            raise ValueError("Interval telemetrie musí být 1, 2, 5 nebo 10 sekund.")
+        settings["sampling_seconds"] = interval
+    incoming = data.get("features", {})
+    if incoming is not None:
+        if not isinstance(incoming, dict):
+            raise ValueError("Seznam funkcí telemetrie má neplatný formát.")
+        for feature_id, enabled in incoming.items():
+            if feature_id not in settings["features"]:
+                raise ValueError("Nastavení obsahuje neznámou funkci telemetrie.")
+            if not isinstance(enabled, bool):
+                raise ValueError("Přepínač funkce telemetrie musí být ano nebo ne.")
+            settings["features"][feature_id] = enabled
+    save_document(TELEMETRY_SETTINGS_PATH, settings)
+    return telemetry_settings_payload()
+
+
+def hardware_status() -> dict[str, Any]:
+    """Načte poslední lokální snímek bez konfigurace a API tajemství."""
+    data = load_document(HARDWARE_STATUS_PATH, "system_usage")
+    return data if isinstance(data, dict) else {}
+
+
+def telemetry_output_path(prefix: str, suffix: str) -> Path:
+    TELEMETRY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return TELEMETRY_OUTPUT_DIR / f"{prefix}-{stamp}.{suffix}"
+
+
+def save_telemetry_snapshot(label: str = "snapshot") -> dict[str, Any]:
+    status = hardware_status()
+    path = telemetry_output_path(re.sub(r"[^a-zA-Z0-9_-]+", "-", label).strip("-") or "snapshot", "json")
+    save_document(path, status)
+    return {"saved": True, "path": str(path), "snapshot": status}
+
+
+def export_telemetry(file_format: str) -> dict[str, Any]:
+    status = hardware_status()
+    if file_format == "json":
+        path = telemetry_output_path("telemetry-export", "json")
+        save_document(path, status)
+    elif file_format == "csv":
+        path = telemetry_output_path("telemetry-export", "csv")
+        rows = status.get("processes", []) if isinstance(status.get("processes"), list) else []
+        allowed = ["name", "pid", "cpu_percent", "memory_mb", "disk_mbps", "gpu_percent", "network_connections", "username"]
+        with path.open("w", encoding="utf-8-sig", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=allowed, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        raise ValueError("Export podporuje pouze JSON nebo CSV.")
+    return {"exported": True, "format": file_format, "path": str(path)}
+
+
+def telemetry_comparison(phase: str) -> dict[str, Any]:
+    TELEMETRY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    baseline_path = TELEMETRY_OUTPUT_DIR / "comparison-baseline.json"
+    current = hardware_status()
+    if phase == "baseline":
+        save_document(baseline_path, current)
+        return {"baseline_saved": True, "path": str(baseline_path)}
+    if phase != "compare":
+        raise ValueError("Porovnání očekává fázi baseline nebo compare.")
+    baseline = load_document(baseline_path, "system_usage")
+    if not baseline_path.is_file():
+        raise ValueError("Nejdříve ulož výchozí snímek před měřením.")
+    before = baseline.get("system_usage", {})
+    after = current.get("system_usage", {})
+    keys = ("cpu_percent", "memory_percent", "disk_percent", "network_percent", "network_mbps")
+    delta = {key: round(float(after.get(key) or 0) - float(before.get(key) or 0), 2) for key in keys}
+    result = {"created_at": datetime.now().isoformat(), "before": before, "after": after, "delta": delta}
+    path = telemetry_output_path("comparison", "json")
+    save_document(path, result)
+    return {"compared": True, "path": str(path), "result": result}
+
+
+def validate_manageable_pid(pid: int) -> None:
+    if pid <= 4 or pid == os.getpid():
+        raise ValueError("Tento systémový proces nelze spravovat.")
+    protected = {"system", "registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass"}
+    script = f"(Get-Process -Id {pid} -ErrorAction Stop).ProcessName"
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=6)
+    if result.returncode != 0 or result.stdout.strip().lower() in protected:
+        raise ValueError("Chráněný nebo neexistující proces Windows.")
+
+
+def manage_process(data: dict[str, Any]) -> dict[str, Any]:
+    settings = load_telemetry_settings()["features"]
+    pid = int(data.get("pid", 0))
+    action = str(data.get("action", ""))
+    validate_manageable_pid(pid)
+    if action in {"suspend", "resume"}:
+        if settings.get("process_suspend_resume") is not True:
+            raise ValueError("Pozastavení procesů je vypnuté v telemetrii.")
+        method = "NtSuspendProcess" if action == "suspend" else "NtResumeProcess"
+        command = (
+            "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class JarvisNative {"
+            "[DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr h);"
+            "[DllImport(\"ntdll.dll\")] public static extern int NtResumeProcess(IntPtr h); }'; "
+            f"$p=Get-Process -Id {pid} -ErrorAction Stop; $result=[JarvisNative]::{method}($p.Handle); if($result -ne 0){{exit $result}}"
+        )
+    elif action == "priority":
+        if settings.get("process_priority_affinity") is not True:
+            raise ValueError("Změna priority je vypnutá v telemetrii.")
+        priority = str(data.get("priority", "Normal"))
+        if priority not in {"Idle", "BelowNormal", "Normal", "AboveNormal", "High"}:
+            raise ValueError("Nepovolená priorita procesu.")
+        command = f"(Get-Process -Id {pid} -ErrorAction Stop).PriorityClass='{priority}'"
+    elif action == "affinity":
+        if settings.get("process_priority_affinity") is not True:
+            raise ValueError("Změna afinity je vypnutá v telemetrii.")
+        mask = int(data.get("mask", 0))
+        if mask <= 0 or mask >= 2 ** max(os.cpu_count() or 1, 1):
+            raise ValueError("Neplatná maska procesorových jader.")
+        command = f"(Get-Process -Id {pid} -ErrorAction Stop).ProcessorAffinity={mask}"
+    elif action == "safe_close":
+        if settings.get("safe_close_before_kill") is not True:
+            raise ValueError("Bezpečné zavření je vypnuté v telemetrii.")
+        command = f"$p=Get-Process -Id {pid} -ErrorAction Stop; if(-not $p.CloseMainWindow()){{exit 2}}"
+    else:
+        raise ValueError("Neznámá akce procesu.")
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", command], capture_output=True, text=True, encoding="utf-8", timeout=10)
+    if result.returncode != 0:
+        raise ValueError((result.stderr or "Akci procesu nelze provést.").strip())
+    return {"pid": pid, "action": action, "completed": True}
 
 
 def normalize_provider(value: object) -> str:
@@ -592,11 +855,17 @@ def run_powershell(command: str, elevated: bool) -> dict[str, Any]:
 class Handler(BaseHTTPRequestHandler):
     """Povoluje pouze lokální čtení a bezpečnou správu textových pravidel."""
 
+    def cors_origin(self) -> str:
+        """Povolí pouze současný a předchozí lokální HUD během aktualizace."""
+        origin = self.headers.get("Origin", "")
+        allowed = {"http://127.0.0.1:5174", "http://127.0.0.1:5173"}
+        return origin if origin in allowed else "http://127.0.0.1:5174"
+
     def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5173")
+        self.send_header("Access-Control-Allow-Origin", self.cors_origin())
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -604,7 +873,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         """Povolí pouze lokální prohlížeč HUD pro ukládání konfigurace."""
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5173")
+        self.send_header("Access-Control-Allow-Origin", self.cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -620,6 +889,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(settings)
         elif self.path == "/providers":
             self.send_json(provider_status())
+        elif self.path == "/telemetry/settings":
+            self.send_json(telemetry_settings_payload())
+        elif self.path == "/telemetry/status":
+            self.send_json(hardware_status())
         elif self.path == "/projects":
             self.send_json(load_document(PROJECTS_PATH, "projects"))
         elif self.path == "/agents":
@@ -660,9 +933,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"rules": rules, "removed": removed})
                 return
             if self.path == "/processes/terminate":
+                telemetry_features = load_telemetry_settings()["features"]
+                if telemetry_features.get("process_termination", True) is not True:
+                    raise ValueError("Ukončování procesů je vypnuté v nastavení telemetrie.")
                 pid = int(data.get("pid", 0))
                 if pid <= 4 or pid == os.getpid():
                     raise ValueError("Tento systémový proces nelze ukončit.")
+                if telemetry_features.get("safe_close_before_kill") is True and data.get("force") is not True:
+                    try:
+                        result = manage_process({"pid": pid, "action": "safe_close"})
+                        result["force_available"] = True
+                        self.send_json(result)
+                        return
+                    except ValueError:
+                        pass
                 command = (
                     f"$process = Get-Process -Id {pid} -ErrorAction Stop; "
                     "$protected = 'System','Registry','smss','csrss','wininit','winlogon','services','lsass'; "
@@ -677,6 +961,24 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError((result.stderr or "Proces nelze ukončit.").strip())
                 logging.info("Ukončen proces PID %s na výslovnou žádost uživatele", pid)
                 self.send_json({"terminated": pid})
+                return
+            if self.path == "/processes/manage":
+                self.send_json(manage_process(data))
+                return
+            if self.path == "/telemetry/snapshot":
+                if load_telemetry_settings()["features"].get("diagnostic_snapshots") is not True:
+                    raise ValueError("Diagnostické snímky jsou vypnuté v telemetrii.")
+                self.send_json(save_telemetry_snapshot(str(data.get("label", "snapshot"))))
+                return
+            if self.path == "/telemetry/export":
+                if load_telemetry_settings()["features"].get("diagnostic_export") is not True:
+                    raise ValueError("Export telemetrie je vypnutý v nastavení.")
+                self.send_json(export_telemetry(str(data.get("format", "json")).lower()))
+                return
+            if self.path == "/telemetry/compare":
+                if load_telemetry_settings()["features"].get("before_after_compare") is not True:
+                    raise ValueError("Porovnání před a po je vypnuté v nastavení.")
+                self.send_json(telemetry_comparison(str(data.get("phase", "compare"))))
                 return
             if self.path == "/powershell/execute":
                 if data.get("confirmed") is not True:
@@ -709,6 +1011,9 @@ class Handler(BaseHTTPRequestHandler):
                     current["start_with_windows"] = set_startup_enabled(data["start_with_windows"])
                 save_document(SETTINGS_PATH, current)
                 self.send_json(current)
+                return
+            if self.path == "/telemetry/settings":
+                self.send_json(update_telemetry_settings(data))
                 return
             if self.path == "/providers/key":
                 provider = normalize_provider(data.get("provider"))

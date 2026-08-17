@@ -54,6 +54,9 @@ let processSort = "cpu_percent";
 let processSortDirection = "desc";
 let selectedProcessPid = null;
 let processSystemUsage = {};
+let telemetryData = { settings: { enabled: true, sampling_seconds: 2, features: {} }, categories: [], features: [] };
+let telemetrySearch = "";
+const telemetryHistory = { cpu: [], ram: [], disk: [], network: [], gpu: [] };
 const modelRouter = {
   default: "qwen3.5:4b",
   complex: "qwen3.5:9b",
@@ -76,7 +79,7 @@ function saveConversation() {
 function installFilmHud() {
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `/film-hud.css?version=37`;
+  link.href = `/film-hud.css?version=43`;
   document.head.append(link);
   const core = document.querySelector(".core-panel");
   if (core && !core.querySelector(".arc-label")) {
@@ -125,8 +128,52 @@ function installFilmHud() {
       updateProcessViews();
     });
     document.getElementById("process-end-task").addEventListener("click", () => terminateSelectedProcess());
+    const processActions = document.querySelector("#processes-overlay .task-actions");
+    if (processActions && !document.getElementById("process-suspend")) {
+      processActions.insertAdjacentHTML("beforeend", '<button id="process-suspend" type="button" disabled>Ⅱ POZASTAVIT</button><button id="process-resume" type="button" disabled>▶ POKRAČOVAT</button><button id="process-priority" type="button" disabled>PRIORITA</button><button id="process-affinity" type="button" disabled>JÁDRA CPU</button>');
+      document.getElementById("process-suspend").addEventListener("click", () => manageSelectedProcess("suspend"));
+      document.getElementById("process-resume").addEventListener("click", () => manageSelectedProcess("resume"));
+      document.getElementById("process-priority").addEventListener("click", () => {
+        const priority = window.prompt("Priorita: Idle, BelowNormal, Normal, AboveNormal nebo High", "Normal");
+        if (priority) manageSelectedProcess("priority", { priority });
+      });
+      document.getElementById("process-affinity").addEventListener("click", () => {
+        const mask = Number(window.prompt("Maska jader CPU (např. 3 = první dvě jádra):", "3"));
+        if (Number.isInteger(mask) && mask > 0) manageSelectedProcess("affinity", { mask });
+      });
+    }
     document.querySelectorAll(".task-sidebar [data-process-view]").forEach(button => button.addEventListener("click", () => setHudView(button.dataset.processView)));
   }
+  const processSidebar = document.querySelector("#processes-overlay .task-sidebar");
+  if (processSidebar && !document.getElementById("open-telemetry-from-processes")) {
+    const button = document.createElement("button");
+    button.id = "open-telemetry-from-processes";
+    button.type = "button";
+    button.innerHTML = "⚙ <span>Telemetrie</span>";
+    processSidebar.insertBefore(button, processSidebar.querySelector("small"));
+    button.addEventListener("click", openTelemetrySettings);
+  }
+  if (!document.getElementById("telemetry-overlay")) {
+    document.body.insertAdjacentHTML("beforeend", '<section id="telemetry-overlay" class="telemetry-overlay" aria-label="Nastavení telemetrie"><header><div class="brand"><span class="dot"></span><span>J.A.R.V.I.S. // TELEMETRIE</span></div><div class="task-search"><span>⌕</span><input id="telemetry-search" type="search" placeholder="Hledat funkci telemetrie" autocomplete="off"></div><nav class="process-nav"><button id="telemetry-to-processes" type="button">PROCESY</button><button id="close-telemetry" type="button">×</button></nav></header><div class="telemetry-layout"><aside class="telemetry-sidebar"><strong>KATEGORIE</strong><div id="telemetry-category-nav"></div><small>LOKÁLNÍ A BEZ PLACENÝCH SLUŽEB</small></aside><main class="telemetry-stage"><div class="telemetry-titlebar"><div><h1>Nastavení telemetrie</h1><p>Vyberte, které místní údaje má JARVIS sledovat.</p></div><div class="telemetry-master"><label><input id="telemetry-master" type="checkbox"><span>TELEMETRIE ZAPNUTA</span></label><label>INTERVAL<select id="telemetry-interval"><option value="1">1 s</option><option value="2">2 s</option><option value="5">5 s</option><option value="10">10 s</option></select></label><button id="telemetry-defaults" type="button">VÝCHOZÍ</button><button id="save-telemetry" type="button">ULOŽIT</button></div></div><div id="telemetry-summary" class="telemetry-summary"></div><div id="telemetry-features" class="telemetry-features"></div></main></div></section>');
+    document.getElementById("close-telemetry").addEventListener("click", returnToJarvisHome);
+    document.getElementById("telemetry-to-processes").addEventListener("click", () => { closeTelemetrySettings(); setHudView("processes"); });
+    document.getElementById("telemetry-search").addEventListener("input", event => { telemetrySearch = event.target.value.trim().toLocaleLowerCase("cs"); renderTelemetryFeatures(); });
+    document.getElementById("save-telemetry").addEventListener("click", saveTelemetrySettings);
+    document.getElementById("telemetry-defaults").addEventListener("click", restoreTelemetryDefaults);
+  }
+  if (!document.getElementById("telemetry-dashboard-overlay")) {
+    document.body.insertAdjacentHTML("beforeend", '<section id="telemetry-dashboard-overlay" class="telemetry-dashboard-overlay" aria-label="Živá telemetrie"><header><div class="brand"><span class="dot"></span><span>J.A.R.V.I.S. // TELEMETRIE</span></div><div class="telemetry-dashboard-status"><span class="dot"></span><b id="telemetry-dashboard-source">ČEKÁM NA SENZORY</b></div><nav class="process-nav"><button data-dashboard-view="processes" type="button">PROCESY</button><button id="dashboard-settings" type="button">NASTAVENÍ</button><button id="close-telemetry-dashboard" type="button">×</button></nav></header><div class="telemetry-dashboard-layout"><aside class="task-sidebar telemetry-dashboard-sidebar"><strong>JARVIS</strong><button class="active" type="button">⌁ <span>Telemetrie</span></button><button data-dashboard-view="processes" type="button">▦ <span>Procesy</span></button><button id="dashboard-settings-side" type="button">⚙ <span>Nastavení</span></button><button data-dashboard-view="chat" type="button">◉ <span>Konverzace</span></button><small>ŽIVÝ STAV POČÍTAČE</small></aside><main class="telemetry-dashboard-stage"><div class="telemetry-dashboard-title"><div><h1>Telemetrie</h1><p>Živé využití a stav komponent počítače</p></div><time id="telemetry-dashboard-time">—</time></div><div id="telemetry-dashboard-cards" class="telemetry-dashboard-cards"></div><div class="telemetry-dashboard-content"><section class="telemetry-live-panel telemetry-wide"><header><div><h2>Výkon systému</h2><p>Posledních 120 sekund</p></div><span id="telemetry-online-state">LOKÁLNÍ</span></header><div id="telemetry-chart-grid" class="telemetry-chart-grid"></div></section><section class="telemetry-live-panel"><header><div><h2>Komponenty</h2><p>Frekvence, příkon a paměť</p></div></header><div id="telemetry-component-details" class="telemetry-component-details"></div></section><section class="telemetry-live-panel"><header><div><h2>Disky</h2><p>Kapacita místních jednotek</p></div></header><div id="telemetry-dashboard-disks" class="telemetry-dashboard-disks"></div></section><section class="telemetry-live-panel telemetry-wide"><header><div><h2>Teplotní senzory</h2><p>LibreHardwareMonitor</p></div></header><div id="telemetry-dashboard-temps" class="telemetry-dashboard-temps"></div></section></div></main></div></section>');
+    const extendedPanel = document.createElement("section");
+    extendedPanel.className = "telemetry-live-panel telemetry-wide telemetry-extended-panel";
+    extendedPanel.innerHTML = '<header><div><h2>Rozšířená telemetrie</h2><p>Aktivní lokální moduly podle nastavení</p></div><div class="telemetry-actionbar"><button id="telemetry-snapshot" type="button">SNÍMEK</button><button id="telemetry-export-json" type="button">JSON</button><button id="telemetry-export-csv" type="button">CSV</button><button id="telemetry-baseline" type="button">PŘED</button><button id="telemetry-compare" type="button">POROVNAT</button><button id="telemetry-second-display" type="button">DRUHÝ MONITOR</button></div></header><div id="telemetry-extended-grid" class="telemetry-extended-grid"><p class="process-empty">ROZŠÍŘENÉ MODULY JSOU VYPNUTÉ</p></div><footer id="telemetry-action-result"></footer>';
+    document.querySelector(".telemetry-dashboard-content")?.appendChild(extendedPanel);
+    document.querySelectorAll("[data-dashboard-view]").forEach(button => button.addEventListener("click", () => setHudView(button.dataset.dashboardView)));
+    document.getElementById("close-telemetry-dashboard").addEventListener("click", returnToJarvisHome);
+    document.getElementById("dashboard-settings").addEventListener("click", openTelemetrySettings);
+    document.getElementById("dashboard-settings-side").addEventListener("click", openTelemetrySettings);
+    bindTelemetryActions();
+  }
+  refreshTelemetryState();
 }
 
 async function loadRules() {
@@ -171,6 +218,136 @@ function closeSidebar() {
   document.body.classList.remove("sidebar-open");
   document.getElementById("sidebar")?.setAttribute("aria-hidden", "true");
   document.getElementById("sidebar-toggle")?.setAttribute("aria-expanded", "false");
+}
+
+async function refreshTelemetryState() {
+  try {
+    telemetryData = await controlGet("/telemetry/settings");
+  } catch (_) {
+    telemetryData = telemetryData || { settings: { enabled: true, sampling_seconds: 2, features: {} }, categories: [], features: [] };
+  }
+  return telemetryData;
+}
+
+async function openTelemetrySettings() {
+  closeSidebar();
+  closeAgentsSidebar();
+  document.getElementById("processes-overlay")?.style.setProperty("display", "none", "important");
+  await refreshTelemetryState();
+  document.body.classList.add("telemetry-settings-open");
+  document.getElementById("telemetry-overlay")?.style.setProperty("display", "block", "important");
+  telemetrySearch = "";
+  const search = document.getElementById("telemetry-search");
+  if (search) search.value = "";
+  renderTelemetryFeatures();
+}
+
+function closeTelemetrySettings() {
+  document.body.classList.remove("telemetry-settings-open");
+  document.getElementById("telemetry-overlay")?.style.setProperty("display", "none", "important");
+}
+
+function returnToJarvisHome() {
+  closeTelemetrySettings();
+  setHudView("chat");
+}
+
+function telemetryFeatureEnabled(featureId) {
+  return telemetryData.settings?.features?.[featureId] === true;
+}
+
+function setTelemetryActionResult(message, failed = false) {
+  const target = document.getElementById("telemetry-action-result");
+  if (!target) return;
+  target.textContent = message;
+  target.classList.toggle("failed", failed);
+}
+
+function bindTelemetryActions() {
+  const run = async (path, payload, success) => {
+    try {
+      const result = await controlPost(path, payload);
+      setTelemetryActionResult(`${success}: ${result.path || "HOTOVO"}`);
+      return result;
+    } catch (error) {
+      setTelemetryActionResult(error.message, true);
+      return null;
+    }
+  };
+  document.getElementById("telemetry-snapshot")?.addEventListener("click", () => run("/telemetry/snapshot", { label: "jarvis" }, "SNÍMEK ULOŽEN"));
+  document.getElementById("telemetry-export-json")?.addEventListener("click", () => run("/telemetry/export", { format: "json" }, "JSON ULOŽEN"));
+  document.getElementById("telemetry-export-csv")?.addEventListener("click", () => run("/telemetry/export", { format: "csv" }, "CSV ULOŽENO"));
+  document.getElementById("telemetry-baseline")?.addEventListener("click", () => run("/telemetry/compare", { phase: "baseline" }, "VÝCHOZÍ STAV ULOŽEN"));
+  document.getElementById("telemetry-compare")?.addEventListener("click", () => run("/telemetry/compare", { phase: "compare" }, "POROVNÁNÍ ULOŽENO"));
+  document.getElementById("telemetry-second-display")?.addEventListener("click", async () => {
+    try {
+      if (window.pywebview?.api?.open_telemetry_window) await window.pywebview.api.open_telemetry_window();
+      else await document.documentElement.requestFullscreen();
+      setTelemetryActionResult("PANEL PRO DRUHÝ MONITOR OTEVŘEN");
+    } catch (error) {
+      setTelemetryActionResult(error.message, true);
+    }
+  });
+}
+
+function renderTelemetryFeatures() {
+  const container = document.getElementById("telemetry-features");
+  const nav = document.getElementById("telemetry-category-nav");
+  if (!container || !nav) return;
+  const settings = telemetryData.settings || { features: {} };
+  const visible = (telemetryData.features || []).filter(feature => !telemetrySearch || `${feature.label} ${feature.description} ${feature.category}`.toLocaleLowerCase("cs").includes(telemetrySearch));
+  const categories = (telemetryData.categories || []).filter(category => visible.some(feature => feature.category === category.id));
+  nav.innerHTML = categories.map((category, index) => `<button type="button" data-telemetry-category="${safeText(category.id)}" class="${index === 0 ? "active" : ""}"><span>▦</span>${safeText(category.label)}</button>`).join("");
+  container.innerHTML = categories.map(category => {
+    const cards = visible.filter(feature => feature.category === category.id).map(feature => {
+      const checked = settings.features?.[feature.id] === true ? " checked" : "";
+      const status = feature.status === "active" ? "FUNKČNÍ" : "PŘIPRAVENO";
+      const admin = feature.requires_admin ? '<span class="telemetry-admin">SPRÁVCE</span>' : "";
+      return `<article class="telemetry-feature ${safeText(feature.status)}"><div><b>${safeText(feature.label)}</b><p>${safeText(feature.description)}</p><small>${status}</small>${admin}</div><label class="telemetry-switch"><input type="checkbox" data-telemetry-feature="${safeText(feature.id)}"${checked}><span></span></label></article>`;
+    }).join("");
+    return `<section class="telemetry-category" id="telemetry-category-${safeText(category.id)}"><header><div><h2>${safeText(category.label)}</h2><p>${safeText(category.description)}</p></div><span>${visible.filter(feature => feature.category === category.id).length} FUNKCÍ</span></header><div class="telemetry-feature-grid">${cards}</div></section>`;
+  }).join("") || '<p class="process-empty">ŽÁDNÁ FUNKCE NEODPOVÍDÁ HLEDÁNÍ</p>';
+  const activeFeatures = (telemetryData.features || []).filter(feature => settings.features?.[feature.id] === true).length;
+  const activeImplemented = (telemetryData.features || []).filter(feature => feature.status === "active" && settings.features?.[feature.id] === true).length;
+  document.getElementById("telemetry-summary").innerHTML = `<div><strong>${activeFeatures}</strong><span>ZAPNUTO CELKEM</span></div><div><strong>${activeImplemented}</strong><span>AKTIVNÍ SBĚRAČE</span></div><div><strong>${(telemetryData.features || []).filter(feature => feature.status === "prepared").length}</strong><span>PŘIPRAVENO K DOPLNĚNÍ</span></div><div><strong>${settings.sampling_seconds || 2} s</strong><span>INTERVAL</span></div>`;
+  const master = document.getElementById("telemetry-master");
+  const interval = document.getElementById("telemetry-interval");
+  if (master) master.checked = settings.enabled !== false;
+  if (interval) interval.value = String(settings.sampling_seconds || 2);
+  nav.querySelectorAll("[data-telemetry-category]").forEach(button => button.addEventListener("click", () => {
+    nav.querySelectorAll("button").forEach(item => item.classList.toggle("active", item === button));
+    document.getElementById(`telemetry-category-${button.dataset.telemetryCategory}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+}
+
+async function saveTelemetrySettings() {
+  const features = { ...(telemetryData.settings?.features || {}) };
+  document.querySelectorAll("[data-telemetry-feature]").forEach(input => { features[input.dataset.telemetryFeature] = input.checked; });
+  const button = document.getElementById("save-telemetry");
+  button.disabled = true;
+  try {
+    telemetryData = await controlPost("/telemetry/settings", {
+      enabled: document.getElementById("telemetry-master").checked,
+      sampling_seconds: Number(document.getElementById("telemetry-interval").value),
+      features
+    });
+    addActivity("NASTAVENÍ TELEMETRIE ULOŽENO");
+    renderTelemetryFeatures();
+  } catch (error) {
+    window.alert(`Telemetrii nelze uložit: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function restoreTelemetryDefaults() {
+  document.getElementById("telemetry-master").checked = true;
+  document.getElementById("telemetry-interval").value = "2";
+  document.querySelectorAll("[data-telemetry-feature]").forEach(input => {
+    const feature = (telemetryData.features || []).find(item => item.id === input.dataset.telemetryFeature);
+    input.checked = feature?.default === true;
+  });
+  addActivity("TELEMETRIE: OBNOVENY VÝCHOZÍ HODNOTY · PRO ULOŽENÍ STISKNĚTE ULOŽIT");
 }
 
 function nativeWorkspaceApi() {
@@ -555,7 +732,7 @@ async function renderAgentCatalog() {
 function installSidebar() {
   if (document.getElementById("sidebar")) return;
   document.querySelector("header")?.insertAdjacentHTML("beforeend", '<button id="agents-sidebar-toggle" class="agents-sidebar-toggle view-button" type="button" aria-label="Otevřít levý panel agentů" aria-expanded="false">AGENTI</button><button id="sidebar-toggle" class="sidebar-toggle view-button" type="button" aria-label="Otevřít pravý panel JARVISu" aria-expanded="false">PANEL</button><button id="workbench-toggle" class="workbench-toggle view-button" type="button" aria-label="Otevřít pracovní panel" aria-expanded="false">PRACOVNA</button>');
-  document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button></nav><section id="sidebar-content" class="sidebar-content"></section><div id="sidebar-provider-state" class="sidebar-foot">OVĚŘUJI REŽIM AI…</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
+  document.body.insertAdjacentHTML("beforeend", '<aside id="agents-sidebar" class="agents-sidebar" aria-label="Panel agentů JARVISu" aria-hidden="true"><div class="sidebar-head"><b>AGENTI</b><button id="agents-sidebar-close" type="button" aria-label="Zavřít panel agentů">×</button></div><section id="agents-sidebar-content" class="sidebar-content"></section><div class="sidebar-foot">PŘEPNUTÍ AGENTA · PAUZA</div></aside><button id="agents-sidebar-backdrop" class="agents-sidebar-backdrop" type="button" aria-label="Zavřít překrytí agentů"></button><aside id="sidebar" class="sidebar" aria-label="Navigační panel JARVISu" aria-hidden="true"><div class="sidebar-head"><b>J.A.R.V.I.S.</b><button id="sidebar-close" type="button" aria-label="Zavřít panel">×</button></div><button id="new-chat" class="new-chat" type="button">＋ NOVÝ CHAT</button><nav class="sidebar-nav" aria-label="Sekce panelu"><button data-section="recent">◷ NEDÁVNÉ CHATY</button><button data-section="projects">▣ PROJEKTY</button><button data-section="rules">⌁ PRAVIDLA</button><button data-section="settings">⚙ NASTAVENÍ</button><button id="open-telemetry-settings-nav" type="button">▦ TELEMETRIE</button></nav><section id="sidebar-content" class="sidebar-content"></section><div id="sidebar-provider-state" class="sidebar-foot">OVĚŘUJI REŽIM AI…</div></aside><button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zavřít překrytí panelu"></button>');
   document.body.insertAdjacentHTML("beforeend", '<aside id="workbench" class="workbench" aria-label="Pracovna JARVISu" aria-hidden="true"><div id="workbench-resizer" class="workbench-resizer" role="separator" aria-orientation="vertical" aria-label="Změnit šířku pracovny"></div><div class="sidebar-head"><b>PRACOVNA</b><button id="workbench-close" type="button" aria-label="Zavřít Pracovnu">×</button></div><nav class="workbench-tabs" aria-label="Sekce Pracovny"><button data-workbench-tab="live" type="button">ŽIVĚ</button><button data-workbench-tab="files" type="button">SOUBORY</button><button data-workbench-tab="browser" type="button">PROHLÍŽEČ</button></nav><section id="workbench-content" class="workbench-content"></section></aside>');
   document.getElementById("sidebar-toggle").addEventListener("click", () => openSidebar());
   document.getElementById("agents-sidebar-toggle").addEventListener("click", () => openAgentsSidebar());
@@ -565,7 +742,8 @@ function installSidebar() {
   document.getElementById("workbench-close").addEventListener("click", closeWorkbench);
   document.getElementById("sidebar-backdrop").addEventListener("click", closeSidebar);
   document.getElementById("agents-sidebar-backdrop").addEventListener("click", closeAgentsSidebar);
-  document.querySelectorAll(".sidebar-nav button").forEach(button => button.addEventListener("click", () => openSidebar(button.dataset.section)));
+  document.querySelectorAll(".sidebar-nav button[data-section]").forEach(button => button.addEventListener("click", () => openSidebar(button.dataset.section)));
+  document.getElementById("open-telemetry-settings-nav").addEventListener("click", event => { event.stopPropagation(); openTelemetrySettings(); });
   document.querySelectorAll("[data-workbench-tab]").forEach(button => button.addEventListener("click", () => { workbenchTab = button.dataset.workbenchTab; renderWorkbench(); }));
   bindWorkbenchResize();
   document.getElementById("new-chat").addEventListener("click", () => {
@@ -1063,19 +1241,170 @@ function renderPerformance(data) {
   document.getElementById("thermal-list").innerHTML = (data.temperatures || []).slice(0, 10).map(item => `<span>${safeText(item.hardware)} · ${safeText(item.name)} <b>${safeText(item.unit)}</b></span>`).join("") || "TEPLOTY: N/A";
 }
 
+function telemetryPolylinePoints(values) {
+  const samples = values.length > 1 ? values : [0, ...(values || [0])];
+  return samples.map((value, index) => `${(index / Math.max(samples.length - 1, 1) * 100).toFixed(2)},${(38 - Math.max(0, Math.min(100, Number(value) || 0)) * .36).toFixed(2)}`).join(" ");
+}
+
+function telemetrySparkline(values) {
+  return `<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="${telemetryPolylinePoints(values)}"></polyline></svg>`;
+}
+
+function updateTelemetryHistory(key, value) {
+  telemetryHistory[key].push(Math.max(0, Math.min(100, Number(value) || 0)));
+  telemetryHistory[key] = telemetryHistory[key].slice(-60);
+}
+
+function renderExtendedTelemetry(data) {
+  const extended = data.extended || {};
+  const processes = data.processes || [];
+  const entries = [];
+  const add = (key, label, value, detail = "") => entries.push({ key, label, value: value ?? "N/A", detail });
+  if ("collector_admin" in extended) add("admin", "Oprávnění", extended.collector_admin ? "SPRÁVCE" : "STANDARD", extended.collector_admin ? "Rozšířené Windows zdroje dostupné" : "Některé zdroje vyžadují správce");
+  if (extended.startup) add("startup", "Start systému", `${extended.startup.items?.length || 0} položek`, `Běží ${Math.round((extended.startup.seconds_since_boot || 0) / 3600)} hodin`);
+  if (extended.smart_storage) {
+    const storage = Array.isArray(extended.smart_storage) ? extended.smart_storage : [extended.smart_storage];
+    add("smart", "SMART disky", storage.filter(item => item?.HealthStatus === "Healthy").length + "/" + storage.length, "Zdravé fyzické disky");
+  }
+  if (extended.fan_voltage_clocks) add("sensors", "Rozšířené senzory", extended.fan_voltage_clocks.length, "Ventilátory, napětí, takty a příkon");
+  if (extended.paging) add("paging", "Stránkovací soubor", `${extended.paging.pagefile_percent} %`, `${extended.paging.pagefile_used_mb} / ${extended.paging.pagefile_total_mb} MB`);
+  if (extended.fan_curves) add("fancurves", "Křivka ventilátorů", extended.fan_curves.length + " vzorků", "Otáčky ve vztahu k teplotě");
+  if (extended.history) add("history", "Historie", extended.history.length + " vzorků", "Uloženo v místní paměti sběrače");
+  if (extended.alerts) add("alerts", "Upozornění", extended.alerts.length, extended.alerts.join(" · ") || "Vše v nastavených mezích");
+  if (extended.anomalies) add("anomalies", "Anomálie", extended.anomalies.length, extended.anomalies.map(item => item.metric.toUpperCase()).join(" · ") || "Běžné chování");
+  if (extended.thermal_throttling) add("throttle", "Throttling", extended.thermal_throttling.detected ? "DETEKOVÁN" : "NE", extended.thermal_throttling.reason);
+  if (extended.bottleneck) add("bottleneck", "Úzké hrdlo", extended.bottleneck.component, extended.bottleneck.advice);
+  if (extended.user_sessions) add("users", "Uživatelé", extended.user_sessions.length, `${processes.length} procesů rozděleno podle účtů`);
+  if (extended.network_adapters) add("adapters", "Síťové adaptéry", extended.network_adapters.filter(item => item.up).length + "/" + extended.network_adapters.length, "Aktivní / celkem");
+  if (extended.disk_performance) add("diskperf", "Disková odezva", Array.isArray(extended.disk_performance) ? extended.disk_performance.length + " čítačů" : "N/A", "Fronta a latence fyzických disků");
+  if (extended.jarvis_usage) add("jarvis", "Spotřeba JARVIS", `${extended.jarvis_usage.cpu_percent} % CPU`, `${extended.jarvis_usage.memory_mb} MB · ${extended.jarvis_usage.processes} procesů`);
+  if (extended.gpu_vram) add("vram", "GPU / VRAM", extended.gpu_vram.length + " senzorů", "Paměť a GPU enginy");
+  if (extended.gaming_capture) add("gaming", "FPS / frametime", extended.gaming_capture.fps ? `${extended.gaming_capture.fps} FPS` : (extended.gaming_capture.available ? "ČEKÁ" : "NEDOSTUPNÉ"), extended.gaming_capture.frametime_ms ? `${extended.gaming_capture.frametime_ms} ms · ${extended.gaming_capture.process || "3D aplikace"}` : extended.gaming_capture.reason);
+  if (extended.game_session) add("session", "Herní relace", extended.game_session.active ? "PROBÍHÁ" : "NEAKTIVNÍ", extended.game_session.last_session ? "Poslední relace uložena" : "Čeká na spuštění hry");
+  const leakCount = processes.filter(item => item.memory_leak_alert).length;
+  if (processes.some(item => "memory_leak_alert" in item)) add("leaks", "Úniky paměti", leakCount, leakCount ? "Procesy s trvalým růstem RAM" : "Bez zjištěného úniku");
+  const writeCount = processes.filter(item => item.sustained_write_alert).length;
+  if (processes.some(item => "sustained_write_alert" in item)) add("writes", "Trvalé zápisy", writeCount, writeCount ? "Procesy s vysokým dlouhodobým zápisem" : "Bez nadměrných zápisů");
+  const unsignedCount = processes.filter(item => item.unsigned_alert).length;
+  if (processes.some(item => "unsigned_alert" in item)) add("unsigned", "Nepodepsané procesy", unsignedCount, "Kontrola digitálních podpisů lokálně");
+  const connectionCount = processes.reduce((sum, item) => sum + (item.connections?.length || 0), 0);
+  if (processes.some(item => Array.isArray(item.connections))) add("connections", "Síťová spojení", connectionCount, "Zobrazené cílové adresy a porty");
+  const container = document.getElementById("telemetry-extended-grid");
+  if (container) {
+    const signature = entries.map(entry => entry.key).join("|");
+    if (container.dataset.signature !== signature) {
+      container.dataset.signature = signature;
+      container.innerHTML = entries.length ? entries.map(entry => `<article data-extended-card="${safeText(entry.key)}"><span></span><b></b><small></small></article>`).join("") : '<p class="process-empty">ROZŠÍŘENÉ MODULY JSOU VYPNUTÉ</p>';
+    }
+    entries.forEach(entry => {
+      const card = container.querySelector(`[data-extended-card="${entry.key}"]`);
+      if (!card) return;
+      card.querySelector("span").textContent = entry.label;
+      card.querySelector("b").textContent = String(entry.value);
+      card.querySelector("small").textContent = entry.detail;
+    });
+  }
+  const actionFeatures = {
+    "telemetry-snapshot": "diagnostic_snapshots", "telemetry-export-json": "diagnostic_export",
+    "telemetry-export-csv": "diagnostic_export", "telemetry-baseline": "before_after_compare",
+    "telemetry-compare": "before_after_compare", "telemetry-second-display": "second_monitor_dashboard",
+  };
+  Object.entries(actionFeatures).forEach(([id, feature]) => {
+    const button = document.getElementById(id);
+    if (button) button.hidden = !telemetryFeatureEnabled(feature);
+  });
+}
+
+function renderTelemetryDashboard(data) {
+  const overlay = document.getElementById("telemetry-dashboard-overlay");
+  if (!overlay) return;
+  const usage = data.system_usage || {};
+  const totals = {
+    cpu: Number(usage.cpu_percent ?? data.cpu?.load) || 0,
+    ram: Number(usage.memory_percent ?? data.ram?.load) || 0,
+    disk: Number(usage.disk_percent) || 0,
+    network: Number(usage.network_percent) || 0,
+    gpu: Number(data.gpu?.load) || 0,
+  };
+  Object.entries(totals).forEach(([key, value]) => updateTelemetryHistory(key, value));
+  const cards = [
+    ["CPU", totals.cpu, metric(data.cpu?.temperature, " °C"), "cpu"],
+    ["Paměť", totals.ram, metric(data.performance?.ram_used_gb, " GB použito"), "ram"],
+    ["Disk", totals.disk, `${(data.disks || []).length} jednotky`, "disk"],
+    ["Síť", totals.network, taskValue(usage.network_mbps, " Mb/s"), "network"],
+    ["GPU", totals.gpu, metric(data.gpu?.temperature, " °C"), "gpu"],
+  ];
+  const cardContainer = document.getElementById("telemetry-dashboard-cards");
+  if (cardContainer.children.length !== cards.length) {
+    cardContainer.innerHTML = cards.map(() => '<article class="telemetry-dashboard-card"><header><span></span><b></b></header><div class="telemetry-mini-chart"><svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline></polyline></svg></div><footer><span></span><i><b></b></i></footer></article>').join("");
+  }
+  [...cardContainer.children].forEach((card, index) => {
+    const [label, value, detail, key] = cards[index];
+    card.querySelector("header span").textContent = label;
+    card.querySelector("header b").textContent = taskValue(value, " %", 0);
+    card.querySelector("polyline").setAttribute("points", telemetryPolylinePoints(telemetryHistory[key]));
+    card.querySelector("footer span").textContent = detail;
+    card.querySelector("footer i b").style.width = `${Math.min(100, value)}%`;
+  });
+  const chartContainer = document.getElementById("telemetry-chart-grid");
+  if (chartContainer.children.length !== cards.length) {
+    chartContainer.innerHTML = cards.map(() => '<article><header><b></b><strong></strong></header><svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline></polyline></svg></article>').join("");
+  }
+  [...chartContainer.children].forEach((chart, index) => {
+    const [label, value, , key] = cards[index];
+    chart.querySelector("header b").textContent = label;
+    chart.querySelector("header strong").textContent = taskValue(value, " %", 0);
+    chart.querySelector("polyline").setAttribute("points", telemetryPolylinePoints(telemetryHistory[key]));
+  });
+  const performance = data.performance || {};
+  const details = [
+    ["CPU frekvence", metric(performance.cpu_clock_mhz, " MHz")], ["CPU příkon", metric(performance.cpu_power_w, " W")],
+    ["GPU frekvence", metric(performance.gpu_clock_mhz, " MHz")], ["GPU příkon", metric(performance.gpu_power_w, " W")],
+    ["RAM použito", metric(performance.ram_used_gb, " GB")], ["RAM volná", metric(performance.ram_available_gb, " GB")],
+    ["Síťový přenos", taskValue(usage.network_mbps, " Mb/s")], ["Ventilátor", metric(performance.fan_rpm, " RPM")],
+  ];
+  const detailContainer = document.getElementById("telemetry-component-details");
+  if (detailContainer.children.length !== details.length) detailContainer.innerHTML = details.map(() => "<div><span></span><b></b></div>").join("");
+  [...detailContainer.children].forEach((row, index) => {
+    row.querySelector("span").textContent = details[index][0];
+    row.querySelector("b").textContent = details[index][1];
+  });
+  const disks = data.disks || [];
+  const diskContainer = document.getElementById("telemetry-dashboard-disks");
+  const diskSignature = disks.map(disk => String(disk.name)).join("|");
+  if (diskContainer.dataset.signature !== diskSignature) {
+    diskContainer.dataset.signature = diskSignature;
+    diskContainer.innerHTML = disks.length ? disks.map(() => '<article><header><b></b><span></span></header><i><b></b></i><small></small></article>').join("") : '<p class="process-empty">DISKY NEJSOU DOSTUPNÉ</p>';
+  }
+  [...diskContainer.querySelectorAll("article")].forEach((row, index) => {
+    const disk = disks[index];
+    row.querySelector("header b").textContent = disk.name;
+    row.querySelector("header span").textContent = `${disk.used} %`;
+    row.querySelector("i b").style.width = `${Math.min(100, Number(disk.used) || 0)}%`;
+    row.querySelector("small").textContent = `${disk.free_gb} GB volno`;
+  });
+  document.getElementById("telemetry-dashboard-temps").innerHTML = (data.temperatures || []).slice(0, 24).map(sensor => `<div><span>${safeText(sensor.hardware)}</span><b>${safeText(sensor.name)}</b><strong>${safeText(sensor.unit)}</strong></div>`).join("") || '<p class="process-empty">TEPLOTNÍ SENZORY NEJSOU DOSTUPNÉ</p>';
+  document.getElementById("telemetry-dashboard-source").textContent = data.source || "LOKÁLNÍ SENZORY";
+  document.getElementById("telemetry-online-state").textContent = data.disabled ? "VYPNUTO" : data.online ? "ONLINE" : "ČEKÁM";
+  document.getElementById("telemetry-dashboard-time").textContent = new Date(data.updated_at || Date.now()).toLocaleTimeString("cs-CZ");
+  renderExtendedTelemetry(data);
+}
+
 function renderDisks(disks) {
   const container = document.getElementById("disk-readout");
   container.innerHTML = (disks || []).map(disk => `<div class="disk-gauge"><span>${safeText(disk.name)}</span><b>${safeText(disk.used)}%</b><i><em style="width:${Math.max(0, Math.min(100, Number(disk.used) || 0))}%"></em></i><small>${safeText(disk.free_gb)} GB VOLNO</small></div>`).join("") || "DISKY: ČEKÁM NA DATA";
 }
 
 function bindProcessControls(target) {
+  const terminationEnabled = telemetryData.settings?.features?.process_termination !== false;
+  target.querySelectorAll("[data-kill-pid]").forEach(button => button.hidden = !terminationEnabled);
   target.querySelectorAll("[data-kill-pid]").forEach(button => button.addEventListener("click", async () => {
     const pid = Number(button.dataset.killPid);
     if (!Number.isInteger(pid) || !window.confirm(`Ukončit proces PID ${pid}? Neuložená data programu mohou být ztracena.`)) return;
     button.disabled = true;
     try {
-      await controlPost("/processes/terminate", { pid });
-      addActivity(`UKONČEN PROCES PID ${pid}`);
+      const result = await controlPost("/processes/terminate", { pid });
+      addActivity(result.action === "safe_close" ? `POŽADAVEK NA ZAVŘENÍ PID ${pid}` : `UKONČEN PROCES PID ${pid}`);
       refreshHardware();
     } catch (error) {
       window.alert(`Proces nebyl ukončen: ${error.message}`);
@@ -1086,23 +1415,50 @@ function bindProcessControls(target) {
     selectedProcessPid = Number(row.dataset.processPid);
     target.querySelectorAll("[data-process-pid]").forEach(item => item.classList.toggle("selected", Number(item.dataset.processPid) === selectedProcessPid));
     const endTask = document.getElementById("process-end-task");
-    if (endTask) endTask.disabled = !Number.isInteger(selectedProcessPid);
+    if (endTask) endTask.disabled = !terminationEnabled || !Number.isInteger(selectedProcessPid);
+    updateProcessActionButtons();
   }));
   target.querySelectorAll(".process-row").forEach(row => row.style.setProperty("display", "block", "important"));
 }
 
 async function terminateSelectedProcess() {
+  if (telemetryData.settings?.features?.process_termination === false) return;
   if (!Number.isInteger(selectedProcessPid) || !window.confirm(`Ukončit proces PID ${selectedProcessPid}? Neuložená data programu mohou být ztracena.`)) return;
   const button = document.getElementById("process-end-task");
   if (button) button.disabled = true;
   try {
-    await controlPost("/processes/terminate", { pid: selectedProcessPid });
-    addActivity(`UKONČEN PROCES PID ${selectedProcessPid}`);
+    const result = await controlPost("/processes/terminate", { pid: selectedProcessPid });
+    addActivity(result.action === "safe_close" ? `POŽADAVEK NA ZAVŘENÍ PID ${selectedProcessPid}` : `UKONČEN PROCES PID ${selectedProcessPid}`);
     selectedProcessPid = null;
     refreshHardware();
   } catch (error) {
     window.alert(`Proces nebyl ukončen: ${error.message}`);
     if (button) button.disabled = false;
+  }
+}
+
+function updateProcessActionButtons() {
+  const selected = Number.isInteger(selectedProcessPid);
+  const suspendEnabled = telemetryFeatureEnabled("process_suspend_resume");
+  const priorityEnabled = telemetryFeatureEnabled("process_priority_affinity");
+  ["process-suspend", "process-resume"].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) { button.hidden = !suspendEnabled; button.disabled = !selected; }
+  });
+  ["process-priority", "process-affinity"].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) { button.hidden = !priorityEnabled; button.disabled = !selected; }
+  });
+}
+
+async function manageSelectedProcess(action, extra = {}) {
+  if (!Number.isInteger(selectedProcessPid)) return;
+  try {
+    await controlPost("/processes/manage", { pid: selectedProcessPid, action, ...extra });
+    addActivity(`PROCES PID ${selectedProcessPid}: ${action.toUpperCase()}`);
+    refreshHardware();
+  } catch (error) {
+    window.alert(`Akci procesu nelze provést: ${error.message}`);
   }
 }
 
@@ -1116,13 +1472,33 @@ function filteredProcessItems() {
 }
 
 function groupedProcesses() {
+  const groupingEnabled = telemetryData.settings?.features?.process_grouping !== false;
+  if (!groupingEnabled) {
+    const multiplier = processSortDirection === "desc" ? -1 : 1;
+    return filteredProcessItems().map(item => ({ ...item, children: [item] })).sort((left, right) => {
+      const a = left[processSort] ?? 0; const b = right[processSort] ?? 0;
+      return (typeof a === "string" || typeof b === "string") ? String(a).localeCompare(String(b), "cs") * multiplier : (Number(a) - Number(b)) * multiplier;
+    });
+  }
+  const treeEnabled = telemetryFeatureEnabled("process_tree");
+  const processByPid = new Map(filteredProcessItems().map(item => [Number(item.pid), item]));
+  const treeRootPid = item => {
+    let current = item;
+    const visited = new Set();
+    while (processByPid.has(Number(current.parent_pid)) && !visited.has(Number(current.parent_pid))) {
+      visited.add(Number(current.pid));
+      current = processByPid.get(Number(current.parent_pid));
+    }
+    return Number(current.pid);
+  };
   const groups = new Map();
   filteredProcessItems().forEach(item => {
-    const key = String(item.name || "proces").toLocaleLowerCase("cs");
+    const key = treeEnabled ? `tree-${treeRootPid(item)}` : String(item.name || "proces").toLocaleLowerCase("cs");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   });
   const values = [...groups.values()].map(children => {
+    if (treeEnabled) children.sort((left, right) => treeRootPid(left) === Number(left.pid) ? -1 : treeRootPid(right) === Number(right.pid) ? 1 : Number(left.parent_pid) - Number(right.parent_pid));
     if (children.length === 1) return { ...children[0], children };
     const sum = field => children.reduce((total, child) => total + (Number(child[field]) || 0), 0);
     const dominantValues = { CPU: sum("cpu_percent"), RAM: sum("memory_percent"), DISK: sum("disk_mbps"), GPU: sum("gpu_percent"), SÍŤ: sum("network_connections") };
@@ -1159,11 +1535,12 @@ function taskValue(value, suffix, digits = 1) {
 
 function taskProcessRow(item, maxima, child = false) {
   const pid = item.pid !== null && item.pid !== undefined && Number.isInteger(Number(item.pid)) ? Number(item.pid) : null;
-  const title = [item.executable, item.username, pid !== null && `PID ${pid}`].filter(Boolean).join(" · ");
+  const title = [item.executable, item.username, pid !== null && `PID ${pid}`, item.parent_pid && `Rodič PID ${item.parent_pid}`].filter(Boolean).join(" · ");
   const displayName = String(item.name || "proces").replace(/\.exe$/i, "");
   const status = item.status === "SLEEPING" || item.status === "RUNNING" ? "" : item.status;
   const heat = (field, value) => `style="--heat:${Math.min(1, (Number(value) || 0) / Math.max(Number(maxima[field]) || 1, 1))}"`;
-  return `<div class="task-process-row task-grid${child ? " child" : ""}${pid === selectedProcessPid ? " selected" : ""}"${pid !== null ? ` data-process-pid="${pid}"` : ""}><div class="task-name" title="${safeText(title)}"><span class="task-app-icon">▦</span><b>${safeText(displayName)}${item.children?.length > 1 ? ` (${item.children.length})` : ""}</b>${pid !== null ? `<small>PID ${pid}</small>` : ""}</div><div class="task-state">${safeText(status)}</div><div class="task-number heat" ${heat("cpu_percent", item.cpu_percent)}>${taskValue(item.cpu_percent, " %")}</div><div class="task-number heat" ${heat("memory_mb", item.memory_mb)}>${taskValue(item.memory_mb, " MB")}</div><div class="task-number heat" ${heat("disk_mbps", item.disk_mbps)}>${taskValue(item.disk_mbps, " MB/s", 2)}</div><div class="task-number heat" ${heat("network_connections", item.network_connections)}>${taskValue(item.network_connections, " spoj.", 0)}</div><div class="task-number heat" ${heat("gpu_percent", item.gpu_percent)}>${taskValue(item.gpu_percent, " %")}</div></div>`;
+  const icon = item.application?.icon ? `<img src="${safeText(item.application.icon)}" alt="">` : "▦";
+  return `<div class="task-process-row task-grid${child ? " child" : ""}${pid === selectedProcessPid ? " selected" : ""}"${pid !== null ? ` data-process-pid="${pid}"` : ""}><div class="task-name" title="${safeText(title)}"><span class="task-app-icon">${icon}</span><b>${safeText(displayName)}${item.children?.length > 1 ? ` (${item.children.length})` : ""}</b>${pid !== null ? `<small>PID ${pid}</small>` : ""}</div><div class="task-state">${safeText(status)}</div><div class="task-number heat" ${heat("cpu_percent", item.cpu_percent)}>${taskValue(item.cpu_percent, " %")}</div><div class="task-number heat" ${heat("memory_mb", item.memory_mb)}>${taskValue(item.memory_mb, " MB")}</div><div class="task-number heat" ${heat("disk_mbps", item.disk_mbps)}>${taskValue(item.disk_mbps, " MB/s", 2)}</div><div class="task-number heat" ${heat("network_connections", item.network_connections)}>${taskValue(item.network_connections, " spoj.", 0)}</div><div class="task-number heat" ${heat("gpu_percent", item.gpu_percent)}>${taskValue(item.gpu_percent, " %")}</div></div>`;
 }
 
 function taskProcessTable(groups) {
@@ -1186,6 +1563,12 @@ function updateProcessViews() {
   const compact = document.getElementById("process-list");
   const count = document.getElementById("process-count");
   if (count) count.textContent = `${items.length} / ${processSnapshot.length} PROCESŮ`;
+  const endTask = document.getElementById("process-end-task");
+  if (endTask) {
+    endTask.hidden = telemetryData.settings?.features?.process_termination === false;
+    endTask.disabled = telemetryData.settings?.features?.process_termination === false || !Number.isInteger(selectedProcessPid);
+  }
+  updateProcessActionButtons();
   if (full) {
     full.innerHTML = taskProcessTable(groups);
     bindProcessControls(full);
@@ -1230,6 +1613,7 @@ async function refreshHardware() {
     renderDisks(data.disks);
     renderPerformance(data);
     renderProcesses(data.processes, { ...(data.system_usage || {}), gpu_percent: data.gpu?.load });
+    renderTelemetryDashboard(data);
   } catch (_) { source.textContent = "SENZORY NEDOSTUPNÉ"; }
 }
 
@@ -1328,11 +1712,13 @@ function setHudView(view) {
   const rightRail = document.querySelector(".right-rail");
   const processPanel = document.getElementById("process-panel");
   const processesOverlay = document.getElementById("processes-overlay");
+  const telemetryDashboard = document.getElementById("telemetry-dashboard-overlay");
   const panels = [...document.querySelectorAll(".right-rail > .panel")];
   [leftRail, corePanel, rightRail, processPanel, ...panels].forEach(element => element?.style.removeProperty("display"));
   rightRail?.style.removeProperty("grid-column");
   if (view === "processes") {
     processesOverlay?.style.setProperty("display", "block", "important");
+    telemetryDashboard?.style.setProperty("display", "none", "important");
     leftRail?.style.setProperty("display", "none", "important");
     corePanel?.style.setProperty("display", "none", "important");
     rightRail?.style.setProperty("grid-column", "1 / -1", "important");
@@ -1342,12 +1728,15 @@ function setHudView(view) {
     processPanel?.style.setProperty("display", "block", "important");
   } else if (view === "system") {
     processesOverlay?.style.setProperty("display", "none", "important");
+    telemetryDashboard?.style.setProperty("display", "block", "important");
     leftRail?.style.setProperty("display", "none", "important");
     corePanel?.style.setProperty("display", "none", "important");
-    rightRail?.style.setProperty("grid-column", "1 / -1", "important");
-    panels.filter(panel => panel === processPanel).forEach(panel => panel.style.setProperty("display", "none", "important"));
+    rightRail?.style.setProperty("display", "none", "important");
   } else {
     processesOverlay?.style.setProperty("display", "none", "important");
+    telemetryDashboard?.style.setProperty("display", "none", "important");
+    processPanel?.style.setProperty("display", "none", "important");
+    rightRail?.style.removeProperty("display");
     panels.filter(panel => !panel.classList.contains("views-panel"))
       .forEach(panel => panel.style.setProperty("display", "none", "important"));
   }
@@ -1356,10 +1745,10 @@ function setHudView(view) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  addActivity(view === "system" ? "PŘEPNUTO NA SYSTÉMOVÝ POHLED" : "PŘEPNUTO NA KONVERZACI");
+  addActivity(view === "system" ? "PŘEPNUTO NA TELEMETRII" : view === "processes" ? "PŘEPNUTO NA PROCESY" : "PŘEPNUTO NA KONVERZACI");
 }
 
 document.querySelectorAll(".view-button[data-view]").forEach(button => {
   button.addEventListener("click", () => setHudView(button.dataset.view));
 });
-setHudView("chat");
+setHudView(new URLSearchParams(window.location.search).get("display") === "telemetry" ? "system" : "chat");

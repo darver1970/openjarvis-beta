@@ -43,6 +43,7 @@ logging.basicConfig(
     encoding="utf-8",
 )
 BROWSER_WINDOW: Any | None = None
+TELEMETRY_WINDOW: Any | None = None
 BROWSER_TABS: list[dict[str, str]] = []
 ACTIVE_BROWSER_TAB_ID = ""
 TEXT_EXTENSIONS = {".css", ".html", ".js", ".json", ".md", ".ps1", ".py", ".txt", ".yml", ".yaml"}
@@ -80,6 +81,22 @@ class JarvisApi:
         """Ukončí nativní okno po stisku tlačítka UKONČIT v HUDu."""
         if webview.windows:
             webview.windows[0].destroy()
+        return True
+
+    def open_telemetry_window(self) -> bool:
+        """Otevře samostatný tmavý dashboard určený pro druhý monitor."""
+        global TELEMETRY_WINDOW
+        url = "http://127.0.0.1:5174/?hud_version=v0.7&asset_revision=telemetry-7&display=telemetry"
+        if TELEMETRY_WINDOW is not None:
+            try:
+                TELEMETRY_WINDOW.show()
+                return True
+            except Exception:
+                TELEMETRY_WINDOW = None
+        TELEMETRY_WINDOW = webview.create_window(
+            "JARVIS TELEMETRIE", url, width=1500, height=900, min_size=(980, 680),
+            resizable=True, frameless=False, js_api=self,
+        )
         return True
 
     def list_files(self, relative_path: str = "") -> dict[str, Any]:
@@ -271,7 +288,7 @@ class JarvisApi:
 
 def main() -> None:
     """Spustí izolovaný lokální host bez externího prohlížeče a rozšíření."""
-    hud_url = "http://127.0.0.1:5173/?hud_version=v0.5&asset_revision=5"
+    hud_url = "http://127.0.0.1:5174/?hud_version=v0.7&asset_revision=telemetry-7"
     borderless = load_borderless_setting()
     logging.info("Spouštím nativní HUD: %s", hud_url)
     window = webview.create_window(

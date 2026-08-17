@@ -1,4 +1,4 @@
-# OpenJarvis Beta HUD v0.6
+# OpenJarvis Beta HUD v0.7
 
 Lokální Windows rozhraní JARVIS postavené nad projektem OpenJarvis. Běží z
 libovolné složky zvolené při instalaci a nevyžaduje placený API klíč pro
@@ -15,6 +15,10 @@ základní lokální provoz.
 - levý panel agentů a izolovaný lokální OpenClaw s politikou `deny-all`,
 - pravou pracovní plochu pro soubory, Git stav a vlastní JARVIS WEB,
 - telemetrii CPU, RAM, GPU, disků, procesů a síťové aktivity.
+- samostatné nastavení telemetrie se 47 přepínači v šesti kategoriích;
+  všech 47 funkcí má lokální sběrač nebo bezpečnou lokální akci. Devět
+  základních sběračů je zapnutých, náročná rozšíření zůstávají ve výchozím
+  stavu vypnutá a aktivují se jednotlivě v nastavení.
 
 ## Bezpečnost a soukromí
 
@@ -134,6 +138,11 @@ Použité samostatné projekty a služby:
   (MPL-2.0) pro volitelnou telemetrii,
 - [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause) pro lokální
   přehled procesů a systémového vytížení,
+- [Intel PresentMon](https://github.com/GameTechDev/PresentMon) (MIT) pro
+  volitelné lokální měření FPS a frametime přes Windows ETW,
+- [Microsoft Sysinternals Handle](https://learn.microsoft.com/sysinternals/downloads/handle)
+  (bezplatný nástroj Microsoft Sysinternals) pro volitelný přehled otevřených
+  souborů a registry handlů při spuštění jako správce,
 - [eadmin2/jarvis_ai](https://github.com/eadmin2/jarvis_ai) (MIT) jako
   vizuální inspirace filmového HUDu,
 - [Gemini API](https://ai.google.dev/gemini-api) a
@@ -144,6 +153,6 @@ Ollama registru. Tento repozitář neobsahuje modelové váhy ani API klíče.
 
 ## Stav vydání
 
-`v0.6` je beta vydání. Před publikací každé změny se provádí lokální kontrola
+`v0.7` je beta vydání. Před publikací každé změny se provádí lokální kontrola
 syntaxí, služeb, hlasových adaptérů, bezpečnostních omezení a instalačního
 skriptu. Nahrání na GitHub probíhá pouze po výslovném příkazu `nahraj na github`.

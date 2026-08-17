@@ -32,7 +32,7 @@ function Assert-Command([string]$Name) {
 function Copy-BetaFiles([string]$From, [string]$To) {
     $fileNames = @(
         '.gitignore', 'LICENSE', 'NOTICE', 'README.md', 'VERSION', 'install.ps1', 'spustit-jarvis.ps1',
-        'hardware_monitor.py', 'jarvis_control.py', 'jarvis_voice.py',
+        'hardware_monitor.py', 'telemetry_extensions.py', 'jarvis_control.py', 'jarvis_voice.py',
         'gemini_live.py', 'network_monitor.py'
     )
     foreach ($name in $fileNames) {
@@ -233,6 +233,33 @@ try {
     Remove-Item -LiteralPath $lhmZip -Force
 } catch {
     Write-Warning 'LibreHardwareMonitor se nepodařilo stáhnout; ostatní části zůstávají funkční.'
+}
+
+try {
+    $winget = Get-Command winget -ErrorAction Stop
+    $presentMonDirectory = Join-Path $runtime 'presentmon'
+    Write-Step 'Instaluji bezplatný PresentMon pro FPS a frametime.'
+    & $winget.Source install --id Intel.PresentMon.Console --exact --location $presentMonDirectory --silent --accept-source-agreements --accept-package-agreements --disable-interactivity
+    if ($LASTEXITCODE -ne 0) { throw "PresentMon skončil s kódem $LASTEXITCODE." }
+} catch {
+    Write-Warning 'PresentMon se nepodařilo nainstalovat; ostatní telemetrie zůstává funkční.'
+}
+
+try {
+    $handleDirectory = Join-Path $runtime 'sysinternals-handle'
+    $handleArchive = Join-Path $handleDirectory 'Handle.zip'
+    New-Item -ItemType Directory -Path $handleDirectory -Force | Out-Null
+    Write-Step 'Stahuji podepsaný Microsoft Sysinternals Handle.'
+    Invoke-WebRequest -Uri 'https://download.sysinternals.com/files/Handle.zip' -OutFile $handleArchive -UseBasicParsing
+    Expand-Archive -LiteralPath $handleArchive -DestinationPath $handleDirectory -Force
+    $handleBinary = Join-Path $handleDirectory 'handle64.exe'
+    $handleSignature = Get-AuthenticodeSignature -LiteralPath $handleBinary
+    if ($handleSignature.Status -ne 'Valid' -or $handleSignature.SignerCertificate.Subject -notlike '*Microsoft Corporation*') {
+        throw 'Digitální podpis Microsoft Handle není platný.'
+    }
+    Remove-Item -LiteralPath $handleArchive -Force
+} catch {
+    Write-Warning 'Microsoft Handle se nepodařilo ověřit; registry handly zůstanou nedostupné.'
 }
 
 $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'JARVIS Beta.lnk'
