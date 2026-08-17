@@ -18,6 +18,8 @@ The installer retrieves optional independent components from their publishers:
 - pywebview, BSD 3-Clause License: https://github.com/r0x0r/pywebview
 - PyInstaller, GPLv2-or-later with its distribution exception: https://pyinstaller.org/
 - LibreHardwareMonitor, MPL-2.0: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+- psutil, BSD-3-Clause: https://github.com/giampaolo/psutil
+- eadmin2/jarvis_ai, MIT License; visual HUD inspiration: https://github.com/eadmin2/jarvis_ai
 
 Gemini API and OpenRouter are optional remote services. Their terms, quotas,
 and processing conditions are governed by their respective providers.

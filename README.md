@@ -132,6 +132,10 @@ Použité samostatné projekty a služby:
   [PyInstaller](https://pyinstaller.org/) pro nativní HUD,
 - [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
   (MPL-2.0) pro volitelnou telemetrii,
+- [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause) pro lokální
+  přehled procesů a systémového vytížení,
+- [eadmin2/jarvis_ai](https://github.com/eadmin2/jarvis_ai) (MIT) jako
+  vizuální inspirace filmového HUDu,
 - [Gemini API](https://ai.google.dev/gemini-api) a
   [OpenRouter](https://openrouter.ai/) jako volitelné online služby.
 
