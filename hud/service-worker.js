@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "jarvis-hud-v60";
+const CACHE_NAME = "jarvis-hud-v63";
 const ASSETS = ["/", "/index.html", "/hud.css", "/boot.css", "/views.css", "/film-hud.css", "/hud.js", "/manifest.json"];
 
 self.addEventListener("install", event => {

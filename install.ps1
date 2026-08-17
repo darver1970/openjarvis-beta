@@ -107,6 +107,10 @@ if ($LASTEXITCODE -ne 0) { throw "Instalace OpenJarvisu selhala s kódem $LASTEX
 $python = Join-Path $installRoot 'src\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { throw 'OpenJarvis nevytvořil očekávané Python prostředí.' }
 
+Write-Step 'Instaluji bezplatnou lokální telemetrii procesů.'
+& $python -m pip install --disable-pip-version-check psutil
+if ($LASTEXITCODE -ne 0) { throw 'Nelze nainstalovat telemetrii procesů psutil.' }
+
 Write-Step 'Vytvářím lokální konfiguraci beta HUDu.'
 foreach ($template in Get-ChildItem -LiteralPath (Join-Path $installRoot 'defaults') -Filter '*.json') {
     $destination = Join-Path $runtime $template.Name

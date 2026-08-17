@@ -47,6 +47,13 @@ let sidebarSection = "recent";
 let workbenchTab = "live";
 let workbenchActivity = [];
 let workbenchFile = "";
+let processSnapshot = [];
+let processSearch = "";
+let processComponent = "all";
+let processSort = "cpu_percent";
+let processSortDirection = "desc";
+let selectedProcessPid = null;
+let processSystemUsage = {};
 const modelRouter = {
   default: "qwen3.5:4b",
   complex: "qwen3.5:9b",
@@ -69,7 +76,7 @@ function saveConversation() {
 function installFilmHud() {
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `/film-hud.css?version=34`;
+  link.href = `/film-hud.css?version=37`;
   document.head.append(link);
   const core = document.querySelector(".core-panel");
   if (core && !core.querySelector(".arc-label")) {
@@ -101,9 +108,24 @@ function installFilmHud() {
   }
   installSidebar();
   if (!document.getElementById("processes-overlay")) {
-    document.body.insertAdjacentHTML("beforeend", '<section id="processes-overlay" class="processes-overlay" aria-label="Správce procesů"><header><div class="brand"><span class="dot"></span><span>J.A.R.V.I.S. // PROCESY</span></div><nav class="process-nav" aria-label="Navigace HUDu"><button data-process-view="chat" type="button">KONVERZACE</button><button data-process-view="system" type="button">SYSTÉM</button><button id="close-processes" type="button">× ZAVŘÍT</button></nav></header><div class="processes-stage"><h1>PROCESY</h1><p>ŽIVÝ PŘEHLED VÝKONU VLASTNÍHO POČÍTAČE</p><div id="process-list-full" class="process-list-full"></div></div></section>');
+    document.body.insertAdjacentHTML("beforeend", '<section id="processes-overlay" class="processes-overlay" aria-label="Správce procesů"><header><div class="brand"><span class="dot"></span><span>J.A.R.V.I.S. // SPRÁVCE ÚLOH</span></div><div class="task-search"><span>⌕</span><input id="process-search" type="search" placeholder="Hledat název, uživatele nebo PID" autocomplete="off"></div><nav class="process-nav" aria-label="Navigace HUDu"><button data-process-view="chat" type="button">KONVERZACE</button><button data-process-view="system" type="button">VÝKON</button><button id="close-processes" type="button">×</button></nav></header><div class="task-layout"><aside class="task-sidebar"><strong>JARVIS</strong><button class="active" type="button">▦ <span>Procesy</span></button><button data-process-view="system" type="button">⌁ <span>Výkon</span></button><button data-process-view="chat" type="button">◉ <span>Konverzace</span></button><small>LOKÁLNÍ SPRÁVA PC</small></aside><main class="processes-stage"><div class="task-titlebar"><div><h1>Procesy</h1><p>Živé využití systémových prostředků</p></div><div class="task-actions"><label>FILTR<select id="process-component"><option value="all">VŠECHNY KOMPONENTY</option><option value="CPU">CPU</option><option value="RAM">PAMĚŤ</option><option value="DISK">DISK</option><option value="GPU">GPU</option><option value="SÍŤ">SÍŤ</option></select></label><button id="process-sort-direction" type="button" aria-label="Směr řazení">↓</button><button id="process-end-task" type="button" disabled>⊘ UKONČIT ÚLOHU</button></div></div><div id="process-list-full" class="process-list-full task-process-table"></div><footer class="task-status"><span id="process-count">0 PROCESŮ</span><span>HODNOTY SE OBNOVUJÍ AUTOMATICKY</span></footer></main></div></section>');
     document.getElementById("close-processes").addEventListener("click", () => setHudView("chat"));
     document.querySelectorAll("[data-process-view]").forEach(button => button.addEventListener("click", () => setHudView(button.dataset.processView)));
+    document.getElementById("process-search").addEventListener("input", event => {
+      processSearch = event.target.value.trim().toLocaleLowerCase("cs");
+      updateProcessViews();
+    });
+    document.getElementById("process-component").addEventListener("change", event => {
+      processComponent = event.target.value;
+      updateProcessViews();
+    });
+    document.getElementById("process-sort-direction").addEventListener("click", event => {
+      processSortDirection = processSortDirection === "desc" ? "asc" : "desc";
+      event.currentTarget.textContent = processSortDirection === "desc" ? "↓" : "↑";
+      updateProcessViews();
+    });
+    document.getElementById("process-end-task").addEventListener("click", () => terminateSelectedProcess());
+    document.querySelectorAll(".task-sidebar [data-process-view]").forEach(button => button.addEventListener("click", () => setHudView(button.dataset.processView)));
   }
 }
 
@@ -343,7 +365,7 @@ async function renderSidebar() {
       let providerData = await controlGet("/providers");
       const inputOptions = (audio.inputs || []).map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("") || '<option value="">Mikrofon nebyl nalezen</option>';
       const outputOptions = outputs.map(device => `<option value="${safeText(device.id)}">${safeText(device.name)}</option>`).join("");
-      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label>Vstupní mikrofon<select name="input_device">${inputOptions}</select></label><label>Výstup hlasu<select name="audio_output">${outputOptions}</select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="continuous_transcription"> Trvalý hlasový režim bez „Hey Jarvis“</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Vstup řeči</dt><dd>LOKÁLNÍ · REAGUJE PO 0,55 S TICHA</dd><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>A:\projekty\OpenJarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
+      content.innerHTML = `<form id="settings-form" class="settings-form"><label>Výchozí model<select name="default_model"><option value="qwen3.5:4b">Qwen 3.5 4B</option><option value="qwen3.5:9b">Qwen 3.5 9B</option><option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option></select></label><label>Vstupní mikrofon<select name="input_device">${inputOptions}</select></label><label>Výstup hlasu<select name="audio_output">${outputOptions}</select></label><label><input type="checkbox" name="voice_output"> Hlasový výstup</label><label><input type="checkbox" name="continuous_transcription"> Trvalý hlasový režim bez „Hey Jarvis“</label><label><input type="checkbox" name="wake_word"> Wake-word „Hey Jarvis“</label><label><input type="checkbox" name="start_with_windows"> Spustit JARVIS po přihlášení do Windows</label><label><input type="checkbox" name="borderless_window"> Okno bez rámečku prohlížeče</label><label>Internet<select name="internet_mode"><option value="on_request">Pouze na pokyn</option><option value="always_online">Stále online</option><option value="offline">Pouze offline</option></select></label><label><input type="checkbox" name="project_start_required"> Projekty až po START</label><dl><dt>Vstup řeči</dt><dd>LOKÁLNÍ · REAGUJE PO 0,55 S TICHA</dd><dt>Cloudové API</dt><dd>VYPNUTO</dd><dt>Open source</dt><dd>ANO</dd><dt>Úložiště</dt><dd>C:\projektjarvis</dd></dl><button class="primary-side" type="submit">ULOŽIT NASTAVENÍ</button></form>`;
       const formSettings = document.getElementById("settings-form");
       const providerOptions = (providerData.providers || []).map(provider => `<option value="${safeText(provider.id)}">${safeText(provider.label)}${provider.configured ? "" : " · VYŽADUJE KLÍČ"}</option>`).join("");
       formSettings.insertAdjacentHTML("afterbegin", `<label>Režim AI<select name="ai_provider">${providerOptions}</select></label><section id="cloud-key-box" class="cloud-key-box" hidden><p id="cloud-key-help"></p><label>API klíč<input id="cloud-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Vložit klíč pro vybraný režim"></label><button id="save-cloud-key" class="primary-side" type="button">ULOŽIT A OTESTOVAT KLÍČ</button></section>`);
@@ -1060,15 +1082,133 @@ function bindProcessControls(target) {
       button.disabled = false;
     }
   }));
+  target.querySelectorAll("[data-process-pid]").forEach(row => row.addEventListener("click", () => {
+    selectedProcessPid = Number(row.dataset.processPid);
+    target.querySelectorAll("[data-process-pid]").forEach(item => item.classList.toggle("selected", Number(item.dataset.processPid) === selectedProcessPid));
+    const endTask = document.getElementById("process-end-task");
+    if (endTask) endTask.disabled = !Number.isInteger(selectedProcessPid);
+  }));
   target.querySelectorAll(".process-row").forEach(row => row.style.setProperty("display", "block", "important"));
 }
 
-function renderProcesses(processes) {
-  const markup = '<div class="process-heading">LOKÁLNÍ PROCESY · CPU · PAMĚŤ · STAV</div>' + ((processes || []).map(item => `<article class="process-row"><div class="process-primary"><b title="${safeText(item.name)}">${safeText(item.name)}</b><button type="button" data-kill-pid="${safeText(item.pid)}">UKONČIT</button></div><div class="process-metrics"><span>PID <b>${safeText(item.pid)}</b></span><span>CPU <b>${safeText(item.cpu_percent)}%</b></span><span>RAM <b>${safeText(item.memory_mb)} MB</b></span><span>STAV <b>${safeText(item.status)}</b></span><span>VLÁKNA <b>${safeText(item.threads)}</b></span><span>HANDLY <b>${safeText(item.handles)}</b></span></div></article>`).join("") || "ŽÁDNÁ DATA");
-  [document.getElementById("process-list"), document.getElementById("process-list-full")].filter(Boolean).forEach(target => {
-    target.innerHTML = markup;
-    bindProcessControls(target);
+async function terminateSelectedProcess() {
+  if (!Number.isInteger(selectedProcessPid) || !window.confirm(`Ukončit proces PID ${selectedProcessPid}? Neuložená data programu mohou být ztracena.`)) return;
+  const button = document.getElementById("process-end-task");
+  if (button) button.disabled = true;
+  try {
+    await controlPost("/processes/terminate", { pid: selectedProcessPid });
+    addActivity(`UKONČEN PROCES PID ${selectedProcessPid}`);
+    selectedProcessPid = null;
+    refreshHardware();
+  } catch (error) {
+    window.alert(`Proces nebyl ukončen: ${error.message}`);
+    if (button) button.disabled = false;
+  }
+}
+
+function filteredProcessItems() {
+  return processSnapshot.filter(item => {
+    const searchable = `${item.name || ""} ${item.pid || ""} ${item.username || ""} ${item.executable || ""}`.toLocaleLowerCase("cs");
+    const searchMatches = !processSearch || searchable.includes(processSearch);
+    const componentMatches = processComponent === "all" || item.dominant_component === processComponent;
+    return searchMatches && componentMatches;
   });
+}
+
+function groupedProcesses() {
+  const groups = new Map();
+  filteredProcessItems().forEach(item => {
+    const key = String(item.name || "proces").toLocaleLowerCase("cs");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  const values = [...groups.values()].map(children => {
+    if (children.length === 1) return { ...children[0], children };
+    const sum = field => children.reduce((total, child) => total + (Number(child[field]) || 0), 0);
+    const dominantValues = { CPU: sum("cpu_percent"), RAM: sum("memory_percent"), DISK: sum("disk_mbps"), GPU: sum("gpu_percent"), SÍŤ: sum("network_connections") };
+    return {
+      name: children[0].name, pid: null, children,
+      cpu_percent: sum("cpu_percent"), memory_mb: sum("memory_mb"), memory_percent: sum("memory_percent"),
+      disk_mbps: sum("disk_mbps"), disk_read_mbps: sum("disk_read_mbps"), disk_write_mbps: sum("disk_write_mbps"),
+      gpu_percent: sum("gpu_percent"), network_connections: sum("network_connections"),
+      dominant_component: Object.entries(dominantValues).sort((a, b) => b[1] - a[1])[0][0],
+      status: children.some(child => child.status !== "RUNNING" && child.status !== "SLEEPING") ? "AKTIVNÍ" : "",
+      username: "Více procesů", executable: ""
+    };
+  });
+  const multiplier = processSortDirection === "desc" ? -1 : 1;
+  return values.sort((left, right) => {
+    const a = left[processSort] ?? 0;
+    const b = right[processSort] ?? 0;
+    if (typeof a === "string" || typeof b === "string") return String(a).localeCompare(String(b), "cs") * multiplier;
+    return (Number(a) - Number(b)) * multiplier;
+  });
+}
+
+function compactProcessRows(items) {
+  return items.slice(0, 8).map(item => {
+    const title = [item.executable, item.username && `Uživatel: ${item.username}`].filter(Boolean).join(" · ") || item.name;
+    return `<article class="process-row" data-component="${safeText(item.dominant_component)}"><div class="process-primary"><div><b title="${safeText(title)}">${safeText(item.name)}</b><small class="process-component">${safeText(item.dominant_component)}</small></div><button type="button" data-kill-pid="${safeText(item.pid)}">UKONČIT</button></div><div class="process-metrics"><span>CPU <b>${safeText(item.cpu_percent)}%</b></span><span>RAM <b>${safeText(item.memory_mb)} MB</b></span><span>DISK <b>${safeText(item.disk_mbps)} MB/s</b></span><span>GPU <b>${safeText(item.gpu_percent)}%</b></span></div></article>`;
+  }).join("") || '<div class="process-empty">ŽÁDNÝ PROCES NEODPOVÍDÁ FILTRU</div>';
+}
+
+function taskValue(value, suffix, digits = 1) {
+  const number = Number(value) || 0;
+  return `${number.toLocaleString("cs-CZ", { maximumFractionDigits: digits })}${suffix}`;
+}
+
+function taskProcessRow(item, maxima, child = false) {
+  const pid = item.pid !== null && item.pid !== undefined && Number.isInteger(Number(item.pid)) ? Number(item.pid) : null;
+  const title = [item.executable, item.username, pid !== null && `PID ${pid}`].filter(Boolean).join(" · ");
+  const displayName = String(item.name || "proces").replace(/\.exe$/i, "");
+  const status = item.status === "SLEEPING" || item.status === "RUNNING" ? "" : item.status;
+  const heat = (field, value) => `style="--heat:${Math.min(1, (Number(value) || 0) / Math.max(Number(maxima[field]) || 1, 1))}"`;
+  return `<div class="task-process-row task-grid${child ? " child" : ""}${pid === selectedProcessPid ? " selected" : ""}"${pid !== null ? ` data-process-pid="${pid}"` : ""}><div class="task-name" title="${safeText(title)}"><span class="task-app-icon">▦</span><b>${safeText(displayName)}${item.children?.length > 1 ? ` (${item.children.length})` : ""}</b>${pid !== null ? `<small>PID ${pid}</small>` : ""}</div><div class="task-state">${safeText(status)}</div><div class="task-number heat" ${heat("cpu_percent", item.cpu_percent)}>${taskValue(item.cpu_percent, " %")}</div><div class="task-number heat" ${heat("memory_mb", item.memory_mb)}>${taskValue(item.memory_mb, " MB")}</div><div class="task-number heat" ${heat("disk_mbps", item.disk_mbps)}>${taskValue(item.disk_mbps, " MB/s", 2)}</div><div class="task-number heat" ${heat("network_connections", item.network_connections)}>${taskValue(item.network_connections, " spoj.", 0)}</div><div class="task-number heat" ${heat("gpu_percent", item.gpu_percent)}>${taskValue(item.gpu_percent, " %")}</div></div>`;
+}
+
+function taskProcessTable(groups) {
+  const maxima = {};
+  ["cpu_percent", "memory_mb", "disk_mbps", "network_connections", "gpu_percent"].forEach(field => maxima[field] = Math.max(...groups.map(item => Number(item[field]) || 0), 1));
+  const usage = processSystemUsage || {};
+  const gpuTotal = Number(usage.gpu_percent) || 0;
+  const header = `<div class="task-table-head task-grid"><button data-task-sort="name"><span>Název</span></button><button data-task-sort="status"><span>Stav</span></button><button data-task-sort="cpu_percent"><strong>${taskValue(usage.cpu_percent, " %", 0)}</strong><span>Procesor</span></button><button data-task-sort="memory_mb"><strong>${taskValue(usage.memory_percent, " %", 0)}</strong><span>Paměť</span></button><button data-task-sort="disk_mbps"><strong>${taskValue(usage.disk_percent, " %", 0)}</strong><span>Disk</span></button><button data-task-sort="network_connections"><strong>${taskValue(usage.network_percent, " %", 0)}</strong><span>Síť</span></button><button data-task-sort="gpu_percent"><strong>${taskValue(gpuTotal, " %", 0)}</strong><span>GPU</span></button></div>`;
+  const rows = groups.map(group => group.children.length > 1
+    ? `<details class="task-process-group"><summary>${taskProcessRow(group, maxima)}</summary><div class="task-group-children">${group.children.map(child => taskProcessRow(child, maxima, true)).join("")}</div></details>`
+    : taskProcessRow(group, maxima)
+  ).join("") || '<div class="process-empty">ŽÁDNÝ PROCES NEODPOVÍDÁ FILTRU</div>';
+  return header + rows;
+}
+
+function updateProcessViews() {
+  const items = filteredProcessItems();
+  const groups = groupedProcesses();
+  const full = document.getElementById("process-list-full");
+  const compact = document.getElementById("process-list");
+  const count = document.getElementById("process-count");
+  if (count) count.textContent = `${items.length} / ${processSnapshot.length} PROCESŮ`;
+  if (full) {
+    full.innerHTML = taskProcessTable(groups);
+    bindProcessControls(full);
+    full.querySelectorAll("[data-task-sort]").forEach(button => button.addEventListener("click", () => {
+      const nextSort = button.dataset.taskSort;
+      if (processSort === nextSort) processSortDirection = processSortDirection === "desc" ? "asc" : "desc";
+      else { processSort = nextSort; processSortDirection = nextSort === "name" ? "asc" : "desc"; }
+      const direction = document.getElementById("process-sort-direction");
+      if (direction) direction.textContent = processSortDirection === "desc" ? "↓" : "↑";
+      updateProcessViews();
+    }));
+  }
+  if (compact) {
+    const compactItems = [...items].sort((a, b) => (Number(b.cpu_percent) || 0) - (Number(a.cpu_percent) || 0));
+    compact.innerHTML = '<div class="process-heading">TOP PROCESY · ŽIVÉ VYTÍŽENÍ</div>' + compactProcessRows(compactItems);
+    bindProcessControls(compact);
+  }
+}
+
+function renderProcesses(processes, systemUsage = {}) {
+  processSnapshot = Array.isArray(processes) ? processes : [];
+  processSystemUsage = systemUsage;
+  updateProcessViews();
 }
 
 async function refreshHardware() {
@@ -1089,7 +1229,7 @@ async function refreshHardware() {
     });
     renderDisks(data.disks);
     renderPerformance(data);
-    renderProcesses(data.processes);
+    renderProcesses(data.processes, { ...(data.system_usage || {}), gpu_percent: data.gpu?.load });
   } catch (_) { source.textContent = "SENZORY NEDOSTUPNÉ"; }
 }
 

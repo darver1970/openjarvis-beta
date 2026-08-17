@@ -1,4 +1,4 @@
-"""Lokální API pro trvalá pravidla JARVISu uložená výhradně na disku A:."""
+"""Lokální API pro trvalá pravidla JARVISu uložená v instalační složce."""
 
 import json
 import logging
@@ -53,6 +53,10 @@ PROVIDERS: dict[str, dict[str, str]] = {
 }
 
 
+class ProviderQuotaError(ValueError):
+    """Provider dosáhl bezplatné kvóty a automatický režim smí přepnout dál."""
+
+
 def load_rules() -> list[str]:
     try:
         payload = json.loads(RULES_PATH.read_text(encoding="utf-8"))
@@ -78,7 +82,7 @@ def load_document(path: Path, key: str) -> dict[str, Any]:
 
 
 def save_document(path: Path, payload: dict[str, Any]) -> None:
-    """Zapíše dokument atomicky výhradně do runtime adresáře na A:."""
+    """Zapíše dokument atomicky výhradně do runtime adresáře instalace."""
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
@@ -185,9 +189,10 @@ def record_active_provider(provider: str) -> None:
 
 
 def automatic_provider_order() -> list[str]:
-    """Vrátí bezplatné providery s Gemini jako výchozí první volbou."""
+    """Vrátí pevné pořadí automatického režimu: Gemini, OpenRouter, lokální."""
     secrets = load_cloud_secrets()
-    return [provider for provider in ("gemini_free", "openrouter_free") if provider in secrets]
+    online = [provider for provider in ("gemini_free", "openrouter_free") if provider in secrets]
+    return [*online, "local"]
 
 
 def record_provider_health(provider: str, succeeded: bool, started_at: datetime) -> None:
@@ -214,24 +219,22 @@ def record_provider_health(provider: str, succeeded: bool, started_at: datetime)
 def automatic_provider_request(
     messages: list[dict[str, object]], model: str = "",
 ) -> tuple[str, str, list[dict[str, str]]]:
-    """Použije online zdroje a vrátí bezpečný přehled případných přepnutí."""
+    """Přepne Gemini -> OpenRouter -> local pouze po vyčerpání free kvóty."""
     fallbacks: list[dict[str, str]] = []
     for provider in automatic_provider_order():
         started_at = datetime.now()
         try:
-            answer = provider_request(provider, messages, model)
+            answer = local_model_request(messages, model) if provider == "local" else provider_request(provider, messages, model)
             record_provider_health(provider, True, started_at)
             return provider, answer, fallbacks
-        except ValueError as error:
+        except ProviderQuotaError as error:
             record_provider_health(provider, False, started_at)
-            logging.warning("Automatický provider %s selhal, zkouším další: %s", provider, error)
+            logging.warning("Provider %s vyčerpal free kvótu, zkouším další: %s", provider, error)
             fallbacks.append({"provider": provider, "reason": str(error)[:240]})
-    try:
-        return "local", local_model_request(messages, model), fallbacks
-    except ValueError as error:
-        logging.warning("Automatický provider local selhal: %s", error)
-        fallbacks.append({"provider": "local", "reason": str(error)[:240]})
-        raise ValueError("Automatický režim nemohl získat odpověď z online ani lokálního modelu.") from error
+        except ValueError:
+            record_provider_health(provider, False, started_at)
+            raise
+    raise ValueError("Automatický režim nemohl získat odpověď z Gemini, OpenRouteru ani lokálního modelu.")
 
 
 def local_model_request(messages: list[dict[str, object]], model: str) -> str:
@@ -322,10 +325,17 @@ def provider_request(
         else:
             raise ValueError("Lokální model se online branou nepoužívá.")
     except urllib.error.HTTPError as error:
+        try:
+            error_body = error.read().decode("utf-8", errors="replace").lower()
+        except OSError:
+            error_body = ""
         logging.warning("Online API %s vrátilo %s", provider, error.code)
+        quota_markers = ("quota", "resource_exhausted", "rate limit", "rate_limit", "free-models-per-day")
+        if error.code in {402, 429} or (error.code == 403 and any(marker in error_body for marker in quota_markers)):
+            raise ProviderQuotaError(f"{PROVIDERS[provider]['label']} vyčerpal bezplatný limit.") from error
         if provider == "gemini_free" and error.code == 404:
             raise ValueError("Gemini model není pro tento účet dostupný. Zkontrolujte model nebo klíč.") from error
-        raise ValueError(f"Online API vrátilo {error.code}. Ověřte klíč nebo bezplatnou kvótu.") from error
+        raise ValueError(f"Online API vrátilo {error.code}. Ověřte API klíč.") from error
     except (urllib.error.URLError, TimeoutError) as error:
         raise ValueError("Online API není dostupné. Zkontrolujte internetové připojení.") from error
     if not answer.strip():

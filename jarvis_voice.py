@@ -1,4 +1,4 @@
-"""Lokální wake-word klient pro J.A.R.V.I.S.; všechny soubory zůstávají na A:."""
+"""Lokální wake-word klient pro J.A.R.V.I.S.; všechny soubory zůstávají v instalaci."""
 
 from __future__ import annotations
 

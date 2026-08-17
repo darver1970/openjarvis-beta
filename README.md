@@ -1,4 +1,4 @@
-# OpenJarvis Beta HUD v0.5
+# OpenJarvis Beta HUD v0.6
 
 Lokální Windows rozhraní JARVIS postavené nad projektem OpenJarvis. Běží z
 libovolné složky zvolené při instalaci a nevyžaduje placený API klíč pro
@@ -140,6 +140,6 @@ Ollama registru. Tento repozitář neobsahuje modelové váhy ani API klíče.
 
 ## Stav vydání
 
-`v0.5` je beta vydání. Před publikací každé změny se provádí lokální kontrola
+`v0.6` je beta vydání. Před publikací každé změny se provádí lokální kontrola
 syntaxí, služeb, hlasových adaptérů, bezpečnostních omezení a instalačního
 skriptu. Nahrání na GitHub probíhá pouze po výslovném příkazu `nahraj na github`.

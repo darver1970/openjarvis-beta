@@ -7,6 +7,7 @@ Pokud senzor není k dispozici, neodhadujeme hodnoty – zobrazí se jako N/A.
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -15,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import psutil
+
 
 ROOT = Path(__file__).resolve().parent
 HUD_STATUS = ROOT / "hud" / "hardware-status.json"
@@ -22,6 +25,9 @@ LOG_PATH = ROOT / "runtime" / "hardware-monitor.log"
 SENSOR_URL = "http://127.0.0.1:8085/data.json"
 POLL_SECONDS = 2
 PROCESS_CPU_SAMPLES: dict[int, tuple[float, float]] = {}
+PROCESS_IO_SAMPLES: dict[int, tuple[int, int, float]] = {}
+GPU_CACHE: tuple[float, dict[int, float]] = (0.0, {})
+SYSTEM_IO_SAMPLE: tuple[float, int, int] | None = None
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -97,77 +103,168 @@ def choose(sensors: list[dict[str, Any]], words: tuple[str, ...], kinds: tuple[s
 
 
 def native_disks() -> list[dict[str, Any]]:
-    """Vrátí obsazení lokálních pevných disků přes PowerShell."""
-    script = "Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" | Select-Object DeviceID,Size,FreeSpace | ConvertTo-Json -Compress"
+    """Vrátí obsazení lokálních pevných disků bez spouštění dalšího procesu."""
+    drives: list[dict[str, Any]] = []
+    for partition in psutil.disk_partitions(all=False):
+        try:
+            usage = psutil.disk_usage(partition.mountpoint)
+            drives.append({
+                "name": partition.device.rstrip("\\") or partition.mountpoint,
+                "used": round(usage.percent),
+                "free_gb": round(usage.free / 1073741824, 1),
+            })
+        except (psutil.Error, OSError):
+            continue
+    return drives
+
+
+def gpu_usage_by_pid() -> dict[int, float]:
+    """Sečte aktivitu GPU enginů Windows podle PID a krátce ji cachuje."""
+    global GPU_CACHE
+    now = time.monotonic()
+    if now - GPU_CACHE[0] < 4:
+        return GPU_CACHE[1]
+    script = (
+        "$ErrorActionPreference='Stop'; "
+        "(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | "
+        "Where-Object {$_.CookedValue -gt 0} | Select-Object InstanceName,CookedValue | ConvertTo-Json -Compress"
+    )
+    usage: dict[int, float] = {}
     try:
+        environment = os.environ.copy()
+        environment["PSModulePath"] = r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules;C:\Program Files\WindowsPowerShell\Modules"
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", script],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=5,
-            check=True,
+            [r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "-NoProfile", "-Command", script],
+            capture_output=True, text=True, encoding="utf-8", timeout=6, check=False, env=environment,
         )
-        drives = json.loads(result.stdout or "[]")
-        if isinstance(drives, dict):
-            drives = [drives]
-        return [
-            {
-                "name": drive.get("DeviceID", "Disk"),
-                "used": round(100 * (1 - int(drive.get("FreeSpace", 0)) / int(drive.get("Size", 1)))),
-                "free_gb": round(int(drive.get("FreeSpace", 0)) / 1073741824, 1),
-            }
-            for drive in drives if int(drive.get("Size", 0)) > 0
-        ]
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as error:
-        logging.warning("Disková telemetrie selhala: %s", error)
-        return []
+        if result.returncode != 0:
+            raise OSError((result.stderr or "GPU čítač vrátil chybu.").strip())
+        samples = json.loads(result.stdout or "[]")
+        if isinstance(samples, dict):
+            samples = [samples]
+        for sample in samples:
+            match = re.search(r"pid_(\d+)", str(sample.get("InstanceName", "")), re.IGNORECASE)
+            if match:
+                pid = int(match.group(1))
+                usage[pid] = usage.get(pid, 0.0) + float(sample.get("CookedValue") or 0)
+        usage = {pid: round(min(value, 100.0), 1) for pid, value in usage.items()}
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, ValueError) as error:
+        logging.warning("GPU procesní čítače nejsou dostupné: %s", error)
+        usage = GPU_CACHE[1]
+    GPU_CACHE = (now, usage)
+    return usage
 
 
 def native_processes() -> list[dict[str, Any]]:
-    """Vrátí největší lokální procesy bez možnosti je měnit nebo ukončit."""
-    script = (
-        "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 45 "
-        "ProcessName,Id,CPU,WorkingSet64,Responding,Handles,@{n='ThreadCount';e={$_.Threads.Count}} | ConvertTo-Json -Compress"
-    )
+    """Vrátí všechny procesy s CPU, RAM, diskem, GPU a síťovými spojeními."""
+    now = time.monotonic()
+    logical_processors = max(os.cpu_count() or 1, 1)
+    total_memory = max(psutil.virtual_memory().total, 1)
+    gpu_usage = gpu_usage_by_pid()
+    connections: dict[int, int] = {}
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", script], capture_output=True,
-            text=True, encoding="utf-8", timeout=7, check=True,
-        )
-        processes = json.loads(result.stdout or "[]")
-        if isinstance(processes, dict):
-            processes = [processes]
-        now = time.monotonic()
-        logical_processors = max(os.cpu_count() or 1, 1)
-        active_pids: set[int] = set()
-        output: list[dict[str, Any]] = []
-        for item in processes:
-            pid = int(item.get("Id") or 0)
-            cpu_seconds = float(item.get("CPU") or 0)
-            previous = PROCESS_CPU_SAMPLES.get(pid)
-            cpu_percent = 0.0
-            if previous:
-                elapsed = now - previous[1]
-                if elapsed > 0:
-                    cpu_percent = round(max(0, (cpu_seconds - previous[0]) / elapsed / logical_processors * 100), 1)
-            PROCESS_CPU_SAMPLES[pid] = (cpu_seconds, now)
+        for connection in psutil.net_connections(kind="inet"):
+            if connection.pid:
+                connections[connection.pid] = connections.get(connection.pid, 0) + 1
+    except (psutil.Error, OSError):
+        pass
+
+    active_pids: set[int] = set()
+    output: list[dict[str, Any]] = []
+    for process in psutil.process_iter(["pid", "name", "exe", "username", "status", "memory_info", "cpu_times", "num_threads", "ppid"]):
+        try:
+            info = process.info
+            pid = int(info["pid"])
+            if pid == 0:
+                continue
             active_pids.add(pid)
+            cpu_times = info.get("cpu_times")
+            cpu_seconds = float(cpu_times.user + cpu_times.system) if cpu_times else 0.0
+            previous_cpu = PROCESS_CPU_SAMPLES.get(pid)
+            cpu_percent = 0.0
+            if previous_cpu and now > previous_cpu[1]:
+                cpu_percent = max(0.0, (cpu_seconds - previous_cpu[0]) / (now - previous_cpu[1]) / logical_processors * 100)
+            PROCESS_CPU_SAMPLES[pid] = (cpu_seconds, now)
+
+            memory_bytes = int(getattr(info.get("memory_info"), "rss", 0) or 0)
+            read_bytes = write_bytes = 0
+            try:
+                io = process.io_counters()
+                read_bytes, write_bytes = int(io.read_bytes), int(io.write_bytes)
+            except (psutil.AccessDenied, AttributeError, OSError):
+                pass
+            previous_io = PROCESS_IO_SAMPLES.get(pid)
+            read_rate = write_rate = 0.0
+            if previous_io and now > previous_io[2]:
+                elapsed = now - previous_io[2]
+                read_rate = max(0.0, (read_bytes - previous_io[0]) / elapsed / 1048576)
+                write_rate = max(0.0, (write_bytes - previous_io[1]) / elapsed / 1048576)
+            PROCESS_IO_SAMPLES[pid] = (read_bytes, write_bytes, now)
+
+            gpu_percent = gpu_usage.get(pid, 0.0)
+            memory_percent = memory_bytes / total_memory * 100
+            network_connections = connections.get(pid, 0)
+            component_scores = {
+                "CPU": cpu_percent,
+                "RAM": memory_percent,
+                "DISK": min((read_rate + write_rate) * 2, 100),
+                "GPU": gpu_percent,
+                "SÍŤ": min(network_connections * 2, 100),
+            }
+            dominant_component = max(component_scores, key=component_scores.get)
             output.append({
-                "name": item.get("ProcessName", "proces"), "pid": pid,
-                "cpu_percent": cpu_percent,
-                "memory_mb": round(int(item.get("WorkingSet64") or 0) / 1048576, 1),
-                "status": "BĚŽÍ" if bool(item.get("Responding", True)) else "NEODPOVÍDÁ",
-                "handles": int(item.get("Handles") or 0),
-                "threads": int(item.get("ThreadCount") or 0),
+                "name": str(info.get("name") or "proces"),
+                "pid": pid,
+                "parent_pid": int(info.get("ppid") or 0),
+                "cpu_percent": round(min(cpu_percent, 100.0), 1),
+                "memory_mb": round(memory_bytes / 1048576, 1),
+                "memory_percent": round(memory_percent, 1),
+                "disk_mbps": round(read_rate + write_rate, 2),
+                "disk_read_mbps": round(read_rate, 2),
+                "disk_write_mbps": round(write_rate, 2),
+                "gpu_percent": gpu_percent,
+                "network_connections": network_connections,
+                "dominant_component": dominant_component,
+                "status": str(info.get("status") or "unknown").upper(),
+                "handles": process.num_handles() if hasattr(process, "num_handles") else 0,
+                "threads": int(info.get("num_threads") or 0),
+                "username": str(info.get("username") or ""),
+                "executable": str(info.get("exe") or ""),
             })
-        for pid in tuple(PROCESS_CPU_SAMPLES):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError, TypeError, ValueError):
+            continue
+
+    for samples in (PROCESS_CPU_SAMPLES, PROCESS_IO_SAMPLES):
+        for pid in tuple(samples):
             if pid not in active_pids:
-                PROCESS_CPU_SAMPLES.pop(pid, None)
-        return sorted(output, key=lambda process: (process["cpu_percent"], process["memory_mb"]), reverse=True)
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as error:
-        logging.warning("Seznam procesů nelze načíst: %s", error)
-        return []
+                samples.pop(pid, None)
+    return sorted(output, key=lambda item: (item["cpu_percent"], item["memory_mb"]), reverse=True)
+
+
+def system_usage_snapshot() -> dict[str, float]:
+    """Vrátí souhrnné vytížení pro hlavičku tabulky ve stylu Správce úloh."""
+    global SYSTEM_IO_SAMPLE
+    now = time.monotonic()
+    disk = psutil.disk_io_counters()
+    network = psutil.net_io_counters()
+    disk_busy = int(getattr(disk, "busy_time", 0) or 0)
+    network_bytes = int(getattr(network, "bytes_sent", 0) or 0) + int(getattr(network, "bytes_recv", 0) or 0)
+    disk_percent = network_mbps = network_percent = 0.0
+    if SYSTEM_IO_SAMPLE and now > SYSTEM_IO_SAMPLE[0]:
+        elapsed = now - SYSTEM_IO_SAMPLE[0]
+        disk_percent = min(100.0, max(0.0, (disk_busy - SYSTEM_IO_SAMPLE[1]) / (elapsed * 1000) * 100))
+        network_mbps = max(0.0, (network_bytes - SYSTEM_IO_SAMPLE[2]) / elapsed * 8 / 1_000_000)
+        link_speed = max((stats.speed for stats in psutil.net_if_stats().values() if stats.isup and stats.speed > 0), default=0)
+        if link_speed:
+            network_percent = min(100.0, network_mbps / link_speed * 100)
+    SYSTEM_IO_SAMPLE = (now, disk_busy, network_bytes)
+    return {
+        "cpu_percent": round(psutil.cpu_percent(interval=None), 1),
+        "memory_percent": round(psutil.virtual_memory().percent, 1),
+        "disk_percent": round(disk_percent, 1),
+        "network_percent": round(network_percent, 1),
+        "network_mbps": round(network_mbps, 1),
+    }
 
 
 def sensor_value(sensors: list[dict[str, Any]], words: tuple[str, ...], kinds: tuple[str, ...]) -> float | None:
@@ -193,6 +290,14 @@ def snapshot() -> dict[str, Any]:
     cpu_load = choose(sensors, ("cpu", "total"), ("load",))
     gpu_load = choose(sensors, ("gpu", "radeon", "nvidia", "geforce"), ("load",))
     ram_load = choose(sensors, ("memory", "ram"), ("load",))
+    disk_activity = max(
+        (sensor["value"] for sensor in sensors if sensor["type"] == "load" and "total activity" in sensor["name"].lower() and sensor["value"] is not None),
+        default=None,
+    )
+    network_utilization = max(
+        (sensor["value"] for sensor in sensors if sensor["type"] == "load" and "network utilization" in sensor["name"].lower() and sensor["value"] is not None),
+        default=None,
+    )
     temperatures = [sensor for sensor in sensors if sensor["type"] == "temperature" and sensor["value"] is not None]
     performance = {
         "cpu_clock_mhz": sensor_value(sensors, ("cpu", "cores"), ("clock",)),
@@ -204,6 +309,11 @@ def snapshot() -> dict[str, Any]:
         "network_load": sensor_value(sensors, ("network utilization",), ("load",)),
         "fan_rpm": sensor_value(sensors, ("cpu", "fan"), ("fan",)),
     }
+    system_usage = system_usage_snapshot()
+    if disk_activity is not None:
+        system_usage["disk_percent"] = round(disk_activity, 1)
+    if network_utilization is not None:
+        system_usage["network_percent"] = round(network_utilization, 1)
     return {
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "source": "Libre Hardware Monitor / localhost",
@@ -215,6 +325,7 @@ def snapshot() -> dict[str, Any]:
         "temperatures": temperatures[:20],
         "disks": native_disks(),
         "processes": native_processes(),
+        "system_usage": system_usage,
     }
 
 
@@ -232,7 +343,7 @@ def main() -> None:
                 "online": False,
                 "message": "ČEKÁM NA SENZORY",
                 "cpu": {}, "gpu": {}, "ram": {}, "performance": {}, "temperatures": [],
-                "disks": native_disks(), "processes": native_processes(),
+                "disks": native_disks(), "processes": native_processes(), "system_usage": system_usage_snapshot(),
             })
         time.sleep(POLL_SECONDS)
 

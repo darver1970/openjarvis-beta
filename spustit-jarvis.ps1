@@ -1,6 +1,7 @@
-# Spouští všechny lokální služby Jarvise z disku A: a otevře HUD rozhraní.
+# Spouští všechny lokální služby Jarvise z instalační složky a otevře HUD rozhraní.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+$env:PATH = "$root\runtime\node;$env:PATH"
 $env:OPENJARVIS_HOME = $root
 $env:OLLAMA_MODELS = "$root\runtime\ollama-models"
 $env:HF_HOME = "$root\runtime\huggingface"
@@ -19,6 +20,20 @@ if (-not (Test-Path -LiteralPath $ollamaPath)) {
     if (-not $ollamaCommand) { throw "Ollama nebyla nalezena. Nejdříve spusťte install.ps1." }
     $ollamaPath = $ollamaCommand.Source
 }
+$foreignOllamaApps = Get-Process -Name "ollama app" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and -not $_.Path.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase) }
+$foreignOllamaApps | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+}
+$ollamaListener = Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if ($ollamaListener) {
+    $ollamaProcess = Get-Process -Id $ollamaListener.OwningProcess -ErrorAction SilentlyContinue
+    if ($ollamaProcess -and $ollamaProcess.Path -ne $ollamaPath) {
+        Stop-Process -Id $ollamaProcess.Id -Force
+        Start-Sleep -Seconds 1
+    }
+}
 if (-not (Test-Port 11434)) {
     Start-Process -FilePath $ollamaPath -ArgumentList "serve" -WorkingDirectory $root -WindowStyle Hidden
     Start-Sleep -Seconds 2
@@ -35,14 +50,23 @@ if (-not (Test-Port 5173)) {
     Start-Process -FilePath $pythonPath -ArgumentList "-m", "http.server", "5173", "--bind", "127.0.0.1", "--directory", "$root\hud" -WorkingDirectory "$root\hud" -WindowStyle Hidden
     Start-Sleep -Seconds 1
 }
-# Senzory CPU/GPU/disků: program, konfigurace, log i API zůstávají na A:.
+# Senzory CPU/GPU/disků: program, konfigurace, log i API zůstávají v instalační složce.
 $hardwarePath = Get-ChildItem -Path "$root\runtime\librehardwaremonitor" -Filter "LibreHardwareMonitor.exe" -File -Recurse -ErrorAction SilentlyContinue |
     Select-Object -First 1 -ExpandProperty FullName
 $hardwareProcess = Get-Process -Name "LibreHardwareMonitor" -ErrorAction SilentlyContinue |
     Select-Object -First 1
-if ($hardwarePath -and -not $hardwareProcess) {
-    Start-Process -FilePath $hardwarePath -WorkingDirectory "$root\runtime\librehardwaremonitor" -WindowStyle Hidden
-    Start-Sleep -Seconds 2
+$windowsIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$windowsPrincipal = [Security.Principal.WindowsPrincipal]::new($windowsIdentity)
+$isAdministrator = $windowsPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($hardwarePath -and -not $hardwareProcess -and $isAdministrator) {
+    try {
+        Start-Process -FilePath $hardwarePath -WorkingDirectory "$root\runtime\librehardwaremonitor" -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+    } catch {
+        Write-Warning "LibreHardwareMonitor nebyl spuštěn: $($_.Exception.Message)"
+    }
+} elseif ($hardwarePath -and -not $hardwareProcess) {
+    Write-Warning "LibreHardwareMonitor vyžaduje spuštění launcheru jako správce; pokračuji bez něj."
 }
 $telemetryProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {

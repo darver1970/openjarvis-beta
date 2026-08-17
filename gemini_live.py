@@ -45,7 +45,12 @@ async def _request_live_answer(command: str, cancelled: Callable[[], bool]) -> t
     encrypted = load_cloud_secrets().get("gemini_free")
     if not encrypted:
         raise GeminiLiveError("Gemini klíč není uložen.")
-    api_key = unprotect_secret(encrypted)
+    try:
+        api_key = unprotect_secret(encrypted)
+    except Exception as error:
+        raise GeminiLiveError(
+            "Gemini klíč ze starého Windows nelze odemknout; používám lokální hlas."
+        ) from error
     endpoint = (
         "wss://generativelanguage.googleapis.com/ws/"
         "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key="
