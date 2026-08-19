@@ -1,10 +1,10 @@
-# Spouští všechny lokální služby Jarvise z instalační složky a otevře HUD rozhraní.
+# Spouští všechny lokální služby aplikace Raven z instalační složky a otevře její rozhraní.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$launcherMutex = [Threading.Mutex]::new($false, 'Local\JarvisLauncherV1')
-if (-not $launcherMutex.WaitOne(30000)) { throw 'Jiný start Jarvise stále probíhá.' }
+$launcherMutex = [Threading.Mutex]::new($false, 'Local\RavenLauncherV1')
+if (-not $launcherMutex.WaitOne(30000)) { throw 'Jiné spuštění aplikace Raven stále probíhá.' }
 $env:PATH = "$root\runtime\node;$env:PATH"
-$env:OPENJARVIS_HOME = $root
+$env:RAVEN_HOME = $root
 $env:OLLAMA_MODELS = "$root\runtime\ollama-models"
 $env:HF_HOME = "$root\runtime\huggingface"
 $env:PLAYWRIGHT_BROWSERS_PATH = "$root\runtime\ms-playwright"
@@ -88,14 +88,14 @@ $controlProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue 
     Where-Object {
         $_.Name -eq "python.exe" -and
         $_.CommandLine -like "*$root*" -and
-        $_.CommandLine -like "*jarvis_control.py*"
+        $_.CommandLine -like "*raven_control.py*"
     }
 # Služba je lehká a restart při hlavním spuštění zaručí aktuální zdroj i po
 # instalaci aktualizace, bez závislosti na nespolehlivém čase procesu z WMI.
 if (-not (Test-Port 8126) -or $controlProcesses) {
     $controlProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 400
-    Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_control.py" -WorkingDirectory $root -WindowStyle Hidden
+    Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\raven_control.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
 $networkProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
@@ -106,13 +106,13 @@ if (-not $networkProcess) {
 }
 
 # Nový Electron shell obsahuje skutečný prohlížeč WebContentsView, Monaco a pracovní karty.
-$desktopApp = "$root\desktop\Jarvis-Desktop.exe"
+$desktopApp = "$root\desktop\Raven-Desktop.exe"
 if (Test-Path -LiteralPath $desktopApp) {
     Start-Process -FilePath $desktopApp -WorkingDirectory "$root\desktop"
 } else {
     $electron = "$root\desktop-electron\node_modules\electron\dist\electron.exe"
     if (-not (Test-Path -LiteralPath $electron)) {
-        throw "Desktopová vrstva Jarvise nebyla nalezena. Spusťte install.ps1."
+        throw "Desktopová vrstva Raven nebyla nalezena. Spusťte install.ps1."
     }
     Start-Process -FilePath $electron -ArgumentList "$root\desktop-electron" -WorkingDirectory "$root\desktop-electron"
 }

@@ -1,12 +1,12 @@
-# Jarvis 1.0
+# Raven 1.0
 
-Jarvis 1.0 je lokální desktopový AI pracovní prostor pro 64bitové Windows 10 a Windows 11. Má tmavé textové rozhraní, lokální historii chatů a projektů, přehled agentů, úkolů, telemetrie a procesů. Hlasové funkce byly z verze 1.0 zcela odstraněny.
+Raven 1.0 je lokální desktopový AI pracovní prostor pro 64bitové Windows 10 a Windows 11. Má tmavé textové rozhraní, lokální historii chatů a projektů, přehled agentů, úkolů, telemetrie a procesů. Hlasové funkce byly z verze 1.0 zcela odstraněny.
 
 ## Nejjednodušší instalace
 
-1. Na stránce **Releases** stáhněte pouze `Jarvis-1.0-Setup.exe` z nejnovějšího vydání 1.0.
-2. Spusťte instalátor. Při prvním spuštění se Jarvis zeptá na jedinou pracovní složku; výchozí je `C:\projektjarvis`. Do zvolené složky uloží zdroje, modely, runtime i data a připraví pouze bezplatné závislosti.
-3. Dokončení první instalace může trvat déle kvůli stažení lokálního modelu. Potom spusťte zástupce **Jarvis 1.0** na ploše.
+1. Na stránce **Releases** stáhněte pouze `Raven-1.0-Setup.exe` z nejnovějšího vydání 1.0.
+2. Spusťte instalátor. Při prvním spuštění se Raven zeptá na jedinou pracovní složku; výchozí je `C:\Raven`. Do zvolené složky uloží zdroje, modely, runtime i data a připraví pouze bezplatné závislosti.
+3. Dokončení první instalace může trvat déle kvůli stažení lokálního modelu. Potom spusťte zástupce **Raven 1.0** na ploše.
 
 Instalace nikdy neaktivuje placené předplatné. Windows může při prvním spuštění zobrazit ochranu SmartScreen, protože komunitní sestavení není podepsané placeným certifikátem.
 
@@ -23,10 +23,10 @@ Instalace nikdy neaktivuje placené předplatné. Windows může při prvním sp
 Pokud nechcete použít EXE, stáhněte ZIP zdrojového kódu z GitHubu, rozbalte jej a v dané složce spusťte:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath C:\projektjarvis
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath C:\Raven
 ```
 
-Instalátor podle potřeby doplní Git, Node.js LTS, Ollamu, Python prostředí, agentní knihovny a desktopovou vrstvu. Hotovou aplikaci lze otevřít zástupcem `Jarvis 1.0` nebo souborem `C:\projektjarvis\desktop\Jarvis-Desktop.exe`.
+Instalátor podle potřeby doplní Git, Node.js LTS, Ollamu, Python prostředí, agentní knihovny a desktopovou vrstvu. Hotovou aplikaci lze otevřít zástupcem `Raven 1.0` nebo souborem `C:\Raven\desktop\Raven-Desktop.exe`.
 
 ### Aktualizace
 
@@ -47,13 +47,13 @@ Na další zdroj se přepne při vyčerpání bezplatné kvóty nebo při nedost
 
 - Chat: víceřádkový editor, Enter pro odeslání a Shift+Enter pro nový řádek, lokální historie, kopírování odpovědí a bloků kódu.
 - Projekty: oddělené pracovní kontexty s cestou, Git repozitářem, technologiemi, poznámkami a testovacím příkazem.
-- Agenti: větve Core, Planning, Research, Browser, Coding, Testing, Files, Memory, Security a System; přidávání vlastních agentů, závislosti, průběh, živé stavy a samostatné okno.
+- Agenti: větve Core, Planning, Research, Browser, Coding, Testing, Files, Memory, Security a System; výchozí Analytik s lokálním Qwen 3.5 9B, přidávání vlastních agentů, závislosti, průběh, živé stavy a samostatné okno.
 - Systém: stabilní telemetrie bez problikávání, živé grafy CPU/RAM/GPU/disku/sítě, teploty, příkon, ventilátory, upozornění, nejzatíženější procesy a samostatný bar zaplnění každého disku. Procesy jsou seskupené jako ve Správci úloh a lze je filtrovat a řadit podle komponent.
 - Úkoly: lokální historie požadavků, použitého poskytovatele a výsledku.
 - Paměť: Memory Manager a lokální Project Indexer se SQLite FTS5, projektové poznatky a cílené mazání.
 - Pracovní panel: skutečné webové karty Electron WebContentsView, trvalé přihlášení, procházení celého počítače (disky, zpět, vpřed a nahoru), soubory v Monaco editoru, výstupy, Git změny, logy, paměť a artefakty. Šířka se mění myší a ukládá.
 - Nabídky: funkční rozbalovací lišty Soubor, Upravit a Zobrazení se zkratkami pro chaty, složky, editaci, panely, prohlížeč, terminál, navigaci, zoom a celou obrazovku.
-- Živé kroky: Přijato, Analýza, Plán, Kontext, Provedení, Úpravy, Test, Kontrola a Hotovo/Chyba přes lokální SSE.
+- Živé kroky: Přijato, Analýza, Plán, Kontext, Provedení, Úpravy, Test, Kontrola a Hotovo/Chyba přes lokální SSE. Průběh je součástí rolovacího chatu, nepřenáší se mezi chaty a po dokončení automaticky zmizí.
 - Plánování a pluginy: lokální seznam naplánovaných úkolů a katalog bezplatných modulů.
 - Oprávnění: Plný přístup, Potvrzení a Zakázáno; pravidla se vynucují v rozhraní i lokálním backendu.
 - Skutečné lokální nástroje: chat umí přes agenty Planner, Files, Tester a Reviewer vytvořit, přečíst a upravit textový soubor, vytvořit složku a obnovitelně odstranit soubor. Výsledek se po provedení zpětně ověřuje.
@@ -64,29 +64,29 @@ Na další zdroj se přepne při vyčerpání bezplatné kvóty nebo při nedost
 
 ## Soukromí a cena
 
-Jarvis neaktivuje žádné placené předplatné. Grok a xAI jsou trvale zakázané a OpenRouter používá pouze výslovně schválený model s příponou `:free`. Online poskytovatelé jsou volitelní a používají uživatelem vložené klíče; jejich bezplatné limity a podmínky určuje poskytovatel. Lokální režim běží bez placeného API. Telemetrie aplikace zůstává lokálně v `C:\projektjarvis\runtime`.
+Raven neaktivuje žádné placené předplatné. Grok a xAI jsou trvale zakázané a OpenRouter používá pouze výslovně schválený model s příponou `:free`. Online poskytovatelé jsou volitelní a používají uživatelem vložené klíče; jejich bezplatné limity a podmínky určuje poskytovatel. Lokální režim běží bez placeného API. Telemetrie aplikace zůstává lokálně ve zvolené instalační složce, například `C:\Raven\runtime`.
 
 ## Architektura a inspirace
 
-Rozhraní a návrh pracovních postupů vycházejí z veřejně dostupných principů projektů Open WebUI, OpenCode, Vane, agenticSeek a Meetily. Jejich zdrojové kódy nejsou bez rozmyslu sloučeny do Jarvisu; komponenty s nekompatibilní copyleft licencí se připojují pouze přes oddělené rozhraní. Převzaté komponenty a jejich licence jsou uvedeny v `NOTICE`.
+Rozhraní a návrh pracovních postupů vycházejí z veřejně dostupných principů projektů Open WebUI, OpenCode, Vane, agenticSeek a Meetily. Jejich zdrojové kódy nejsou bez rozmyslu sloučeny do Ravenu; komponenty s nekompatibilní copyleft licencí se připojují pouze přes oddělené rozhraní. Převzaté komponenty a jejich licence jsou uvedeny v `NOTICE`.
 
 ## Vývoj
 
-- Backend: `jarvis_control.py`
+- Backend: `raven_control.py`
 - Desktopové okno: `desktop-electron/main.js`, bezpečný most `desktop-electron/preload.js`
 - Rozhraní: `hud/index.html`, `hud/app.css`, `hud/workbench.css`, `hud/hud.js`, `hud/workbench.js`
-- Agentní runtime: `agent_runtime.py` a `jarvis_intelligence.py` (Pydantic AI Slim, Browser Use, Crawl4AI, MCP; nejvýše dva těžcí agenti)
+- Agentní runtime: `agent_runtime.py` a `raven_intelligence.py` (Pydantic AI Slim, Browser Use, Crawl4AI, MCP; nejvýše dva těžcí agenti)
 - Výchozí konfigurace: `defaults/`
 - Lokální běhová data: `runtime/`
 
 Před vydáním se kontroluje syntaxe Pythonu a JavaScriptu, lokální API, načtení rozhraní, psaní do editoru, historie, telemetrie, skutečný souborový nástroj přes chat a vytvoření instalačního EXE. GitHub se aktualizuje pouze na výslovný pokyn uživatele.
 
-Výsledné soubory jsou `desktop/Jarvis-Desktop.exe` pro běžné spuštění a `desktop-dist/Jarvis-1.0-Setup.exe` jako instalační balíček. Instalační EXE obsahuje zdrojovou část Jarvisu 1.0 a na čistém podporovaném počítači spustí přípravu bezplatných závislostí.
+Výsledné soubory jsou `desktop/Raven-Desktop.exe` pro běžné spuštění a `desktop-dist/Raven-1.0-Setup.exe` jako instalační balíček. Instalační EXE obsahuje zdrojovou část Ravenu 1.0 a na čistém podporovaném počítači spustí přípravu bezplatných závislostí.
 
 ## Kredity
 
-Jarvis 1.0 integruje OpenJarvis a samostatné open-source knihovny vyjmenované v souboru [`NOTICE`](NOTICE). Rozhraní a pracovní postupy byly navrženy také s přihlédnutím k veřejným principům projektů Open WebUI, OpenCode, Vane, Meetily a agenticSeek. Jejich zdrojový kód není součástí Jarvisu 1.0 a projekt si nenárokuje jejich značky ani podporu.
+Instalátor Raven 1.0 stahuje oficiální OpenJarvis jako samostatnou běhovou závislost; jeho zdrojový kód není součástí tohoto repozitáře ani instalačního EXE. Další samostatné open-source knihovny jsou uvedeny v souboru [`NOTICE`](NOTICE). Rozhraní a pracovní postupy byly navrženy také s přihlédnutím k veřejným principům projektů Open WebUI, OpenCode, Vane, Meetily a agenticSeek. Jejich zdrojový kód není součástí Ravenu 1.0 a projekt si nenárokuje jejich značky ani podporu.
 
 ## Licence
 
-Jarvis 1.0 je vydán pod Apache License 2.0. Podrobné kredity a licence integrovaných nebo volitelných komponent jsou v souboru `NOTICE`.
+Raven 1.0 je vydán pod Apache License 2.0. Podrobné kredity a licence integrovaných nebo volitelných komponent jsou v souboru `NOTICE`.

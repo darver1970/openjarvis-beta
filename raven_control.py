@@ -1,4 +1,4 @@
-"""Lokální API pro trvalá pravidla JARVISu uložená v instalační složce."""
+"""Lokální API pro trvalá pravidla RAVENu uložená v instalační složce."""
 
 import asyncio
 import json
@@ -22,7 +22,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_runtime import AgentTask, RUNTIME as AGENT_RUNTIME
-from jarvis_intelligence import (
+from raven_intelligence import (
     create_project_snapshot,
     detect_local_file_action,
     execute_file_action,
@@ -35,10 +35,10 @@ from jarvis_intelligence import (
 
 
 ROOT = Path(__file__).resolve().parent
-CONTROL_PORT = int(os.environ.get("JARVIS_CONTROL_PORT", "8126"))
-RULES_PATH = ROOT / "runtime" / "jarvis-rules.json"
-SETTINGS_PATH = ROOT / "runtime" / "jarvis-settings.json"
-DEFAULT_SETTINGS_PATH = ROOT / "defaults" / "jarvis-settings.json"
+CONTROL_PORT = int(os.environ.get("RAVEN_CONTROL_PORT", "8126"))
+RULES_PATH = ROOT / "runtime" / "raven-rules.json"
+SETTINGS_PATH = ROOT / "runtime" / "raven-settings.json"
+DEFAULT_SETTINGS_PATH = ROOT / "defaults" / "raven-settings.json"
 CLOUD_SECRETS_PATH = ROOT / "runtime" / "cloud-api-secrets.json"
 PROVIDER_HEALTH_PATH = ROOT / "runtime" / "provider-health.json"
 ACTIVE_PROVIDER_PATH = ROOT / "runtime" / "active-provider.json"
@@ -48,25 +48,25 @@ OPENCLAW_ENTRYPOINT = OPENCLAW_ROOT / "node_modules" / "openclaw" / "openclaw.mj
 OPENCLAW_CONFIG_PATH = OPENCLAW_ROOT / "openclaw.json"
 OPENCLAW_STATE_DIR = OPENCLAW_ROOT / "state"
 OPENCLAW_WORKSPACE = ROOT / "runtime" / "agents" / "openclaw"
-PROJECTS_PATH = ROOT / "runtime" / "jarvis-projects.json"
-CHATS_PATH = ROOT / "runtime" / "jarvis-chats.json"
-TASK_HISTORY_PATH = ROOT / "runtime" / "jarvis-task-history.json"
-SCHEDULES_PATH = ROOT / "runtime" / "jarvis-schedules.json"
-AGENTS_PATH = ROOT / "runtime" / "jarvis-agents.json"
-DEFAULT_AGENTS_PATH = ROOT / "defaults" / "jarvis-agents.json"
-AGENT_CATALOG_PATH = ROOT / "defaults" / "jarvis-agent-catalog.json"
-PROJECT_MEMORY_PATH = ROOT / "runtime" / "jarvis-project-memory.json"
+PROJECTS_PATH = ROOT / "runtime" / "raven-projects.json"
+CHATS_PATH = ROOT / "runtime" / "raven-chats.json"
+TASK_HISTORY_PATH = ROOT / "runtime" / "raven-task-history.json"
+SCHEDULES_PATH = ROOT / "runtime" / "raven-schedules.json"
+AGENTS_PATH = ROOT / "runtime" / "raven-agents.json"
+DEFAULT_AGENTS_PATH = ROOT / "defaults" / "raven-agents.json"
+AGENT_CATALOG_PATH = ROOT / "defaults" / "raven-agent-catalog.json"
+PROJECT_MEMORY_PATH = ROOT / "runtime" / "raven-project-memory.json"
 TELEMETRY_SETTINGS_PATH = ROOT / "runtime" / "telemetry-settings.json"
 TELEMETRY_OUTPUT_DIR = ROOT / "runtime" / "telemetry"
 HARDWARE_STATUS_PATH = ROOT / "hud" / "hardware-status.json"
 EXECUTIONS_DIR = ROOT / "runtime" / "executions"
 PROJECT_INDEX_PATH = ROOT / "runtime" / "project-index.db"
-LOG_PATH = ROOT / "runtime" / "jarvis-control.log"
+LOG_PATH = ROOT / "runtime" / "raven-control.log"
 PROJECT_MEMORY_LOCK = threading.Lock()
 CHAT_LOCK = threading.Lock()
 EVENT_LOCK = threading.Lock()
 EVENTS: deque[dict[str, Any]] = deque(maxlen=600)
-STARTUP_VALUE_NAME = "OpenJarvisBeta"
+STARTUP_VALUE_NAME = "Raven1"
 STARTUP_REGISTRY_PATH = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 EXECUTIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,26 +94,27 @@ OPENAI_COMPATIBLE_PROVIDERS = {
 FORBIDDEN_MODEL_PATTERN = re.compile(r"(?:^|[/_.:-])(grok|xai)(?:$|[/_.:-])", re.IGNORECASE)
 
 BUILTIN_AGENTS = [
-    {"id": "jarvis", "name": "Jarvis Router", "group": "Core", "role": "Centrální koordinátor a bezpečný router", "tools": ["routing", "permissions", "queue"], "dependencies": [], "model": "automatic"},
-    {"id": "planner", "name": "Planner", "group": "Planning", "role": "Rozklad cíle na ověřitelné kroky", "tools": ["task-plan", "context"], "dependencies": ["jarvis"], "model": "automatic"},
+    {"id": "raven", "name": "Raven Router", "group": "Core", "role": "Centrální koordinátor a bezpečný router", "tools": ["routing", "permissions", "queue"], "dependencies": [], "model": "automatic"},
+    {"id": "planner", "name": "Planner", "group": "Planning", "role": "Rozklad cíle na ověřitelné kroky", "tools": ["task-plan", "context"], "dependencies": ["raven"], "model": "automatic"},
+    {"id": "analyst", "name": "Analytik", "group": "Planning", "role": "Analýza dat, plánů a souvislostí", "tools": ["data-analysis", "planning", "context"], "dependencies": ["planner"], "model": "qwen3.5:9b"},
     {"id": "research", "name": "Research", "group": "Research", "role": "Výzkum, porovnání a zdroje", "tools": ["searxng", "crawl4ai", "browser"], "dependencies": ["planner"], "model": "automatic"},
     {"id": "browser", "name": "Browser", "group": "Browser", "role": "Pozorovatelná práce ve webových kartách", "tools": ["browser-use", "playwright"], "dependencies": ["planner"], "model": "automatic"},
     {"id": "files", "name": "Files", "group": "Files", "role": "Bezpečné čtení a úpravy souborů", "tools": ["files", "diff", "snapshot"], "dependencies": ["planner"], "model": "automatic"},
     {"id": "coding", "name": "Coding", "group": "Coding", "role": "Implementace malých kontrolovaných změn", "tools": ["monaco", "git-diff", "terminal"], "dependencies": ["planner", "files"], "model": "qwen2.5-coder:7b"},
     {"id": "tester", "name": "Tester", "group": "Testing", "role": "Cílené testy a kontrola regresí", "tools": ["tests", "logs"], "dependencies": ["coding"], "model": "automatic"},
     {"id": "reviewer", "name": "Reviewer", "group": "Testing", "role": "Nezávislá kontrola výsledku a rizik", "tools": ["diff", "tests", "security-review"], "dependencies": ["tester"], "model": "automatic"},
-    {"id": "memory-manager", "name": "Memory Manager", "group": "Memory", "role": "Rozhodnutí, preference, výsledky a úklid zastaralé paměti", "tools": ["memory", "summaries"], "dependencies": ["jarvis"], "model": "local"},
+    {"id": "memory-manager", "name": "Memory Manager", "group": "Memory", "role": "Rozhodnutí, preference, výsledky a úklid zastaralé paměti", "tools": ["memory", "summaries"], "dependencies": ["raven"], "model": "local"},
     {"id": "project-indexer", "name": "Project Indexer", "group": "Memory", "role": "Lokální mapa projektu a fulltextový index FTS5", "tools": ["sqlite-fts5", "project-map"], "dependencies": ["files"], "model": "local"},
-    {"id": "security", "name": "Security", "group": "Security", "role": "Oprávnění, prompt injection a ochrana tajemství", "tools": ["permission-gate", "quarantine", "secret-filter"], "dependencies": ["jarvis"], "model": "local"},
-    {"id": "telemetry", "name": "Telemetry", "group": "System", "role": "Výkon, procesy, stabilita a kvóty", "tools": ["psutil", "provider-health", "logs"], "dependencies": ["jarvis"], "model": "local"},
+    {"id": "security", "name": "Security", "group": "Security", "role": "Oprávnění, prompt injection a ochrana tajemství", "tools": ["permission-gate", "quarantine", "secret-filter"], "dependencies": ["raven"], "model": "local"},
+    {"id": "telemetry", "name": "Telemetry", "group": "System", "role": "Výkon, procesy, stabilita a kvóty", "tools": ["psutil", "provider-health", "logs"], "dependencies": ["raven"], "model": "local"},
 ]
 
-JARVIS_SYSTEM_PROMPT = """Jsi centrální textový asistent Jarvis 1.0. Odpovídej česky, pokud uživatel nepoužije jiný jazyk.
+RAVEN_SYSTEM_PROMPT = """Jsi centrální textový asistent Raven 1.0. Odpovídej česky, pokud uživatel nepoužije jiný jazyk.
 Buď přesný, praktický a stručný. Nevymýšlej si fakta, dokončené akce ani výsledky nástrojů.
 Výchozí formát odpovědi: krátký výsledek, potom jasné body nebo číslované kroky. Dlouhé odstavce rozděl.
 Kód dávej do samostatných Markdown bloků. Důležité upozornění zvýrazni. Nadpis použij jen když pomáhá orientaci.
-Pokud něco nelze ověřit, řekni to. Interní chain-of-thought nezobrazuj. Do odpovědi nevkládej vlastní provozní stav, název aktivního modelu ani tvrzení online/offline; tyto ověřené údaje zobrazuje rozhraní Jarvisu samo.
-Jarvis řídí specializované agenty a nástroje, ale uživatel komunikuje vždy pouze s Jarvisem.
+Pokud něco nelze ověřit, řekni to. Interní chain-of-thought nezobrazuj. Do odpovědi nevkládej vlastní provozní stav, název aktivního modelu ani tvrzení online/offline; tyto ověřené údaje zobrazuje rozhraní Ravenu samo.
+Raven řídí specializované agenty a nástroje, ale uživatel komunikuje vždy pouze s Ravenem.
 Používej jen bezplatné modely. Grok a xAI jsou vždy zakázané. Základní pořadí je Gemini Free, explicitně schválený OpenRouter Free model a nakonec lokální Ollama; další bezplatní poskytovatelé mohou sloužit jako specializované zálohy."""
 
 TELEMETRY_CATEGORIES = [
@@ -160,7 +161,7 @@ TELEMETRY_FEATURES = [
     {"id": "diagnostic_export", "category": "reporting", "label": "Export JSON a CSV", "description": "Lokální export bez API klíčů a osobních tajemství.", "status": "prepared", "default": False},
     {"id": "diagnostic_snapshots", "category": "reporting", "label": "Diagnostické snímky", "description": "Uloží stav počítače pro pozdější porovnání.", "status": "prepared", "default": False},
     {"id": "before_after_compare", "category": "reporting", "label": "Porovnání před a po", "description": "Změny vytížení způsobené zvoleným programem.", "status": "prepared", "default": False},
-    {"id": "jarvis_usage_separation", "category": "reporting", "label": "Spotřeba samotného Jarvise", "description": "Oddělí procesy Jarvise od ostatních programů.", "status": "prepared", "default": False},
+    {"id": "raven_usage_separation", "category": "reporting", "label": "Spotřeba aplikace Raven", "description": "Oddělí procesy Raven od ostatních programů.", "status": "prepared", "default": False},
     {"id": "process_priority_affinity", "category": "extended", "label": "Priorita a afinita CPU", "description": "Zobrazení a bezpečná změna priority nebo přiřazených jader.", "status": "prepared", "default": False, "requires_admin": True},
     {"id": "process_suspend_resume", "category": "extended", "label": "Pozastavit a pokračovat", "description": "Dočasné pozastavení procesu bez jeho ukončení.", "status": "prepared", "default": False, "requires_admin": True},
     {"id": "user_sessions", "category": "extended", "label": "Vytížení podle uživatele", "description": "Souhrn prostředků podle přihlášených účtů Windows.", "status": "prepared", "default": False},
@@ -182,7 +183,7 @@ TELEMETRY_IMPLEMENTATIONS = {
         "hardware_sensors", "temperatures", "process_details", "process_grouping", "process_tree",
         "windows_services", "startup_impact", "energy_usage", "page_faults", "smart_storage",
         "fan_voltage_clocks", "user_sessions", "application_icons", "disk_queue_latency",
-        "network_adapter_split", "gpu_vram_details", "jarvis_usage_separation",
+        "network_adapter_split", "gpu_vram_details", "raven_usage_separation",
     )},
     **{key: "history_engine" for key in (
         "history_charts", "threshold_alerts", "anomaly_detection", "memory_leak_detection",
@@ -317,7 +318,7 @@ def record_task(prompt: str, provider: str, model: str, status: str, result: str
 
 
 def prepare_chat_messages(messages: list[Any], include_library: bool = True) -> list[dict[str, str]]:
-    """Normalizuje kontext a vždy přidá jednotné instrukce Jarvise."""
+    """Normalizuje kontext a vždy přidá jednotné instrukce aplikace Raven."""
     normalized = []
     for item in messages[-24:]:
         if not isinstance(item, dict):
@@ -354,7 +355,7 @@ def prepare_chat_messages(messages: list[Any], include_library: bool = True) -> 
             )
     now = datetime.now().astimezone()
     additions.insert(0, f"Aktuální místní datum a čas počítače: {now.strftime('%A %d.%m.%Y %H:%M:%S %Z')}.")
-    system = JARVIS_SYSTEM_PROMPT + ("\n\n" + "\n\n".join(additions) if additions else "")
+    system = RAVEN_SYSTEM_PROMPT + ("\n\n" + "\n\n".join(additions) if additions else "")
     return [{"role": "system", "content": system}, *[item for item in normalized if item["role"] != "system"]]
 
 
@@ -386,8 +387,8 @@ def load_projects() -> dict[str, Any]:
 def load_recent_logs() -> dict[str, str]:
     """Vrátí krátký, lokální a odtajněný výpis provozních logů HUDu."""
     candidates = [
-        ROOT / "runtime" / "jarvis-control.log",
-        ROOT / "runtime" / "jarvis-hud.log",
+        ROOT / "runtime" / "raven-control.log",
+        ROOT / "runtime" / "raven-hud.log",
         ROOT / "runtime" / "launcher.log",
     ]
     sections: list[str] = []
@@ -581,10 +582,10 @@ def manage_process(data: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Pozastavení procesů je vypnuté v telemetrii.")
         method = "NtSuspendProcess" if action == "suspend" else "NtResumeProcess"
         command = (
-            "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class JarvisNative {"
+            "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class RavenNative {"
             "[DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr h);"
             "[DllImport(\"ntdll.dll\")] public static extern int NtResumeProcess(IntPtr h); }'; "
-            f"$p=Get-Process -Id {pid} -ErrorAction Stop; $result=[JarvisNative]::{method}($p.Handle); if($result -ne 0){{exit $result}}"
+            f"$p=Get-Process -Id {pid} -ErrorAction Stop; $result=[RavenNative]::{method}($p.Handle); if($result -ne 0){{exit $result}}"
         )
     elif action == "priority":
         if settings.get("process_priority_affinity") is not True:
@@ -632,10 +633,10 @@ def load_cloud_secrets() -> dict[str, str]:
 def protect_secret(value: str) -> str:
     """Zašifruje tajemství pomocí Windows DPAPI pro aktuální účet."""
     environment = os.environ.copy()
-    environment["JARVIS_CLOUD_SECRET"] = value
+    environment["RAVEN_CLOUD_SECRET"] = value
     environment["PSModulePath"] = r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules;C:\Program Files\WindowsPowerShell\Modules"
     result = subprocess.run(
-        [r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$s=ConvertTo-SecureString $env:JARVIS_CLOUD_SECRET -AsPlainText -Force; ConvertFrom-SecureString $s"],
+        [r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$s=ConvertTo-SecureString $env:RAVEN_CLOUD_SECRET -AsPlainText -Force; ConvertFrom-SecureString $s"],
         capture_output=True, text=True, encoding="utf-8", timeout=15, check=False, env=environment,
     )
     encrypted = result.stdout.strip()
@@ -647,10 +648,10 @@ def protect_secret(value: str) -> str:
 def unprotect_secret(value: str) -> str:
     """Rozšifruje klíč jen krátce pro jedno síťové volání stejného uživatele."""
     environment = os.environ.copy()
-    environment["JARVIS_CLOUD_SECRET"] = value
+    environment["RAVEN_CLOUD_SECRET"] = value
     environment["PSModulePath"] = r"C:\Windows\System32\WindowsPowerShell\v1.0\Modules;C:\Program Files\WindowsPowerShell\Modules"
     script = (
-        "$s=ConvertTo-SecureString $env:JARVIS_CLOUD_SECRET; "
+        "$s=ConvertTo-SecureString $env:RAVEN_CLOUD_SECRET; "
         "$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); "
         "try {[Runtime.InteropServices.Marshal]::PtrToStringBSTR($p)} "
         "finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}"
@@ -730,7 +731,7 @@ def require_permission(data: dict[str, Any], action: str) -> None:
     if mode == "denied":
         raise ValueError(f"Akce „{action}“ je zakázaná nastavenou úrovní přístupu.")
     if mode == "confirm" and data.get("confirmed") is not True:
-        raise ValueError(f"Akce „{action}“ vyžaduje potvrzení v Jarvisu.")
+        raise ValueError(f"Akce „{action}“ vyžaduje potvrzení v Ravenu.")
 
 
 def record_active_provider(provider: str) -> None:
@@ -854,7 +855,7 @@ def run_openclaw_agent(task: str) -> str:
     environment["OPENCLAW_CONFIG_PATH"] = str(OPENCLAW_CONFIG_PATH)
     environment["OPENCLAW_WORKSPACE_DIR"] = str(OPENCLAW_WORKSPACE)
     prompt = (
-        "Jsi OpenClaw, lokální pomocný agent JARVISu. "
+        "Jsi OpenClaw, lokální pomocný agent RAVENu. "
         "Neprováděj příkazy, neotevírej síť, neměň soubory a nenavrhuj obcházení schválení. "
         "Odpověz česky stručným výsledkem nebo bezpečným návrhem postupu.\n\n"
         f"Úkol: {task}"
@@ -901,7 +902,7 @@ def provider_request(
     if provider == "local":
         selected_model = model
     if FORBIDDEN_MODEL_PATTERN.search(selected_model):
-        raise ValueError("Grok a xAI jsou v Jarvisu trvale zakázané.")
+        raise ValueError("Grok a xAI jsou v Ravenu trvale zakázané.")
     try:
         if provider == "gemini_free":
             system = "\n".join(item["content"] for item in sanitized if item["role"] == "system")
@@ -914,7 +915,7 @@ def provider_request(
                 data = json.loads(response.read().decode("utf-8"))
             answer = "".join(str(part.get("text", "")) for part in data["candidates"][0]["content"]["parts"])
         elif provider in OPENAI_COMPATIBLE_PROVIDERS:
-            request = urllib.request.Request(OPENAI_COMPATIBLE_PROVIDERS[provider], data=json.dumps({"model": selected_model, "messages": sanitized, "max_tokens": 2000}, ensure_ascii=False).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}", "X-Title": "Jarvis 1.0 free-only"}, method="POST")
+            request = urllib.request.Request(OPENAI_COMPATIBLE_PROVIDERS[provider], data=json.dumps({"model": selected_model, "messages": sanitized, "max_tokens": 2000}, ensure_ascii=False).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}", "X-Title": "Raven 1.0 free-only"}, method="POST")
             with urllib.request.urlopen(request, timeout=45) as response:
                 data = json.loads(response.read().decode("utf-8"))
             answer = str(data["choices"][0]["message"]["content"])
@@ -946,8 +947,8 @@ def provider_request(
 def load_project_memory() -> dict[str, Any]:
     """Načte sdílené poznatky o projektu se stabilní strukturou."""
     memory = load_document(PROJECT_MEMORY_PATH, "entries")
-    memory.setdefault("project", "OpenJarvis Beta")
-    memory.setdefault("summary", "Lokální JARVIS pro Windows.")
+    memory.setdefault("project", "Raven 1.0")
+    memory.setdefault("summary", "Lokální RAVEN pro Windows.")
     entries = memory.get("entries", [])
     memory["entries"] = [entry for entry in entries if isinstance(entry, dict)][-120:]
     for entry in memory["entries"]:
@@ -973,7 +974,7 @@ def append_project_memory(data: dict[str, Any]) -> dict[str, Any]:
             "type": entry_type,
             "title": title,
             "summary": summary,
-            "source": "jarvis" if data.get("source") == "jarvis" else "user",
+            "source": "raven" if data.get("source") == "raven" else "user",
             "created_at": datetime.now().isoformat(timespec="seconds"),
         })
         memory["entries"] = memory["entries"][-120:]
@@ -1022,8 +1023,8 @@ def clean_obsolete_memory() -> None:
         cleaned = [entry for entry in memory["entries"] if not any(token in f"{entry.get('title','')} {entry.get('summary','')}".lower() for token in obsolete)]
         if len(cleaned) != len(memory["entries"]):
             memory["entries"] = cleaned
-            memory["project"] = "Jarvis 1.0"
-            memory["summary"] = "Lokální textový Jarvis 1.0 pro Windows uložený v C:\\projektjarvis."
+            memory["project"] = "Raven 1.0"
+            memory["summary"] = "Lokální textový Raven 1.0 pro Windows uložený v C:\\Raven."
             save_document(PROJECT_MEMORY_PATH, memory)
 
 
@@ -1057,7 +1058,7 @@ def run_agent_stage(agent_id: str, prompt: str, operation: Any, *, requires_perm
     """Spusti skutecnou praci pres limitovanou agentni frontu."""
     settings = load_settings()
     task = AgentTask(
-        prompt=prompt[:12000] or "Jarvis task",
+        prompt=prompt[:12000] or "Raven task",
         agent_id=agent_id,
         # Rezim Zakazano omezuje nastroje, nikoli premysleni a bezny chat.
         permission_mode=str(settings.get("permission_mode", "confirm")) if requires_permission else "full",
@@ -1106,7 +1107,7 @@ def generate_artifact_content(prompt: str, target: str) -> tuple[str, str, list[
             if any(not re.search(pattern, content, re.IGNORECASE) for pattern in required):
                 last_error = "Coding agent vratil neuplnou HTML stranku."
                 continue
-            if "Vítejte v Jarvis AI" in prompt and not re.search(r"<p[^>]*>\s*Vítejte v Jarvis AI\.\s*</p>", content, re.IGNORECASE):
+            if "Vítejte v Raven AI" in prompt and not re.search(r"<p[^>]*>\s*Vítejte v Raven AI\.\s*</p>", content, re.IGNORECASE):
                 last_error = "Coding agent nedodrzel presne zadanou uvitaci zpravu."
                 continue
             if re.search(r"<script\b|<button\b|<form\b|\bonclick\s*=", content, re.IGNORECASE):
@@ -1126,7 +1127,7 @@ def generate_artifact_content(prompt: str, target: str) -> tuple[str, str, list[
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Jarvis AI</title>
+  <title>Raven AI</title>
   <style>
     :root{color-scheme:dark;--bg:#101411;--panel:#1b211d;--text:#f3f7f4;--muted:#a6b1aa;--accent:#53e39f}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at top,#203229,var(--bg) 58%);color:var(--text);font:16px/1.6 system-ui,sans-serif}
@@ -1138,8 +1139,8 @@ def generate_artifact_content(prompt: str, target: str) -> tuple[str, str, list[
 <body>
   <main>
     <small>Lokální AI asistent</small>
-    <h1>Jarvis AI</h1>
-    <p>Vítejte v Jarvis AI.</p>
+    <h1>Raven AI</h1>
+    <p>Vítejte v Raven AI.</p>
     <p>Bezpečné, rychlé a přehledné prostředí připravené pomáhat s vašimi úkoly.</p>
     <div class="status">Systém je připraven</div>
   </main>
@@ -1219,7 +1220,7 @@ def load_agents() -> dict[str, Any]:
                 if key not in existing or key in {"group", "dependencies", "tools"}:
                     existing[key] = value
                     changed = True
-    current.setdefault("active_agent_id", current["agents"][0].get("id", "jarvis") if current["agents"] else "")
+    current.setdefault("active_agent_id", current["agents"][0].get("id", "raven") if current["agents"] else "")
     if changed:
         save_document(AGENTS_PATH, current)
     return current
@@ -1304,8 +1305,8 @@ def save_custom_agent(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_agent(agent_id: str) -> dict[str, Any]:
-    if agent_id == "jarvis":
-        raise ValueError("Hlavního agenta JARVIS nelze odstranit.")
+    if agent_id == "raven":
+        raise ValueError("Hlavního agenta RAVEN nelze odstranit.")
     current = load_agents()
     before = len(current["agents"])
     current["agents"] = [item for item in current["agents"] if item.get("id") != agent_id]
@@ -1334,7 +1335,7 @@ def run_startup_command(
 
 
 def startup_is_enabled() -> bool:
-    """Ověří existenci vlastní položky JARVISu v registru aktuálního uživatele."""
+    """Ověří existenci vlastní položky RAVENu v registru aktuálního uživatele."""
     if os.name != "nt":
         return False
     command = (
@@ -1347,15 +1348,15 @@ def startup_is_enabled() -> bool:
 
 def set_startup_enabled(enabled: bool) -> bool:
     """Přidá nebo odstraní jedinou bezpečně definovanou položku autostartu."""
-    startup_script = ROOT / "spustit-jarvis.ps1"
+    startup_script = ROOT / "spustit-raven.ps1"
     if not startup_script.is_file():
-        raise ValueError("Spouštěcí skript JARVISu nebyl nalezen.")
+        raise ValueError("Spouštěcí skript RAVENu nebyl nalezen.")
 
     if enabled:
         environment = os.environ.copy()
-        environment["JARVIS_STARTUP_SCRIPT"] = str(startup_script)
+        environment["RAVEN_STARTUP_SCRIPT"] = str(startup_script)
         command = (
-            "$path = [System.IO.Path]::GetFullPath($env:JARVIS_STARTUP_SCRIPT); "
+            "$path = [System.IO.Path]::GetFullPath($env:RAVEN_STARTUP_SCRIPT); "
             "$value = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + "
             "('\\\"' + $path + '\\\"'); "
             f"New-Item -Path '{STARTUP_REGISTRY_PATH}' -Force | Out-Null; "
@@ -1682,7 +1683,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(create_project_snapshot(str(data.get("label", "manual")), keep=10))
                 return
             if self.path == "/diagnostics/run":
-                result = run_agent_stage("telemetry", "Proveď diagnostiku Jarvisu", lambda: run_diagnostics(data.get("full") is True))
+                result = run_agent_stage("telemetry", "Proveď diagnostiku Ravenu", lambda: run_diagnostics(data.get("full") is True))
                 self.send_json(result)
                 return
             if self.path == "/telemetry/settings":
@@ -1699,14 +1700,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(provider_status())
                 return
             if self.path == "/chat":
-                emit_event("received", agent="jarvis", result="Požadavek přijat")
+                emit_event("received", agent="raven", result="Požadavek přijat")
                 settings = load_settings()
                 provider = normalize_provider(settings.get("ai_provider", "local"))
                 raw_messages = data.get("messages", [])
                 if not isinstance(raw_messages, list):
                     raise ValueError("Zprávy pro online model mají neplatný formát.")
                 prompt = next((str(item.get("content", "")) for item in reversed(raw_messages) if isinstance(item, dict) and item.get("role") == "user"), "")
-                emit_event("analysis", agent="jarvis", model=str(data.get("model", "automatic")), result="Rozpoznávám záměr a oprávnění")
+                emit_event("analysis", agent="raven", model=str(data.get("model", "automatic")), result="Rozpoznávám záměr a oprávnění")
                 local_action = run_agent_stage("planner", prompt, lambda: detect_local_file_action(prompt), requires_permission=False)
                 emit_event("plan", "completed", agent="planner", result="Plán připraven")
                 if local_action:
@@ -1740,13 +1741,13 @@ class Handler(BaseHTTPRequestHandler):
                     include_library = provider == "local" or library_settings.get("online_context") is True
                     messages = prepare_chat_messages(raw_messages, include_library=include_library)
                     emit_event("context", "completed", agent="project-indexer", result="Paměť a relevantní soubory připojeny")
-                    emit_event("execute", agent="jarvis", tool="model-router", result="Čekám na bezplatný model")
+                    emit_event("execute", agent="raven", tool="model-router", result="Čekám na bezplatný model")
                     operation = (
                         lambda: automatic_provider_request(messages, str(data.get("model", "")))
                         if provider == "automatic"
                         else (provider, provider_request(provider, messages, str(data.get("model", ""))), [])
                     )
-                    selected_provider, answer, fallbacks = run_agent_stage("jarvis", prompt, operation, requires_permission=False)
+                    selected_provider, answer, fallbacks = run_agent_stage("raven", prompt, operation, requires_permission=False)
                 record_active_provider(selected_provider)
                 record_task(prompt, selected_provider, str(data.get("model", "")), "completed", answer)
                 chat_id = str(data.get("chat_id", ""))
@@ -1756,7 +1757,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not review["nonempty"]:
                     raise ValueError("Kontrola výsledku zjistila prázdnou odpověď.")
                 emit_event("review", "completed", agent="reviewer", model=str(data.get("model", "")), result="Výsledek ověřen")
-                emit_event("done", "completed", agent="jarvis", model=str(data.get("model", "")), result=f"Dokončeno přes {selected_provider}")
+                emit_event("done", "completed", agent="raven", model=str(data.get("model", "")), result=f"Dokončeno přes {selected_provider}")
                 self.send_json({"provider": selected_provider, "answer": answer, "fallbacks": fallbacks})
                 return
             if self.path == "/project-index/rebuild":
@@ -1835,8 +1836,8 @@ class Handler(BaseHTTPRequestHandler):
                 agent_id = normalize_agent_id(data.get("agent_id"))
                 current = load_agents()
                 agent = agent_by_id(current["agents"], agent_id)
-                if agent.get("id") == "jarvis":
-                    raise ValueError("Hlavního agenta JARVIS nelze pozastavit.")
+                if agent.get("id") == "raven":
+                    raise ValueError("Hlavního agenta RAVEN nelze pozastavit.")
                 if agent.get("status") == "planned":
                     raise ValueError("Neinstalovaný modul nelze spustit ani pozastavit.")
                 agent["status"] = "paused" if agent.get("status") == "ready" else "ready"
@@ -1851,8 +1852,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Neznámá akce agenta.")
                 current = load_agents()
                 agent = agent_by_id(current["agents"], agent_id)
-                if agent_id == "jarvis" and action in {"stop", "pause"}:
-                    raise ValueError("Centrální Jarvis musí zůstat aktivní.")
+                if agent_id == "raven" and action in {"stop", "pause"}:
+                    raise ValueError("Centrální Raven musí zůstat aktivní.")
                 agent["status"] = {"start": "working", "retry": "working", "pause": "paused", "stop": "ready"}[action]
                 agent["current_step"] = {"start": "Spuštěn", "retry": "Opakuji", "pause": "Pozastaven", "stop": "Zastaven"}[action]
                 agent["progress"] = 10 if action in {"start", "retry"} else 0
@@ -1885,6 +1886,9 @@ class Handler(BaseHTTPRequestHandler):
                     "status": "ready",
                     "rules": [str(rule) for rule in catalog_agent.get("rules", [])][:12],
                     "permissions": [str(item) for item in catalog_agent.get("permissions", [])][:12],
+                    "group": str(catalog_agent.get("group", "Core")),
+                    "tools": [str(item) for item in catalog_agent.get("tools", [])][:12],
+                    "dependencies": [str(item) for item in catalog_agent.get("dependencies", [])][:12],
                     "installed_at": datetime.now().isoformat(timespec="seconds"),
                 }
                 current["agents"].append(installed)
@@ -1962,7 +1966,7 @@ class Handler(BaseHTTPRequestHandler):
             logging.info("Uloženo pravidlo: %s", rule[:120])
             self.send_json({"rules": rules, "saved": rule})
         except (ValueError, OSError, json.JSONDecodeError) as error:
-            emit_event("error", "error", agent="jarvis", error=str(error)[:500], result="Úkol skončil chybou")
+            emit_event("error", "error", agent="raven", error=str(error)[:500], result="Úkol skončil chybou")
             self.send_json({"error": str(error)}, 400)
 
     def log_message(self, format_text: str, *args: Any) -> None:
@@ -1980,5 +1984,5 @@ if __name__ == "__main__":
         except Exception:
             logging.exception("Rychla diagnostika po startu selhala")
 
-    threading.Thread(target=startup_diagnostic, name="jarvis-startup-diagnostic", daemon=True).start()
+    threading.Thread(target=startup_diagnostic, name="raven-startup-diagnostic", daemon=True).start()
     server.serve_forever()

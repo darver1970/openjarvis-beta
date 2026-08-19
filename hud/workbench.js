@@ -1,13 +1,18 @@
 "use strict";
 
-const desktop = window.jarvisDesktop || null;
+const desktop = window.ravenDesktop || null;
 let browserState = { activeTabId: "", tabs: [] };
 let editor = null;
 let editorModel = null;
 const openFiles = [];
 const fileNavigation = { history: [], index: -1 };
 const agentBranches = ["Core", "Planning", "Research", "Browser", "Coding", "Testing", "Files", "Memory", "Security", "System"];
-const collapsedBranches = new Set(JSON.parse(localStorage.getItem("jarvis-collapsed-branches") || "[]"));
+const collapsedBranches = new Set(JSON.parse(localStorage.getItem("raven-collapsed-branches") || "[]"));
+let changeBaseline = null;
+let lastChangeSignature = "";
+let changeCardDismissed = true;
+let changeCardHideTimer = null;
+let liveWorkHideTimer = null;
 
 if (desktop) {
   api = () => ({
@@ -36,6 +41,8 @@ setProgress = label => {
 };
 
 function renderLiveEvent(event) {
+  clearTimeout(liveWorkHideTimer);
+  liveWorkHideTimer = null;
   const order = ["received", "analysis", "plan", "context", "execute", "edit", "test", "review", "done"];
   const target = order.indexOf(event.step);
   $$("#task-progress span").forEach((node, index) => {
@@ -43,26 +50,31 @@ function renderLiveEvent(event) {
     node.classList.toggle("done", target >= 0 && index < target);
     node.title = index === target ? [event.agent, event.model, event.tool, event.result, event.error].filter(Boolean).join(" · ") : "";
   });
-  if (event.step === "received") state.liveEvents = [];
+  if (event.step === "received") { state.liveEvents = []; state.liveEventChatId = state.activeChatId; }
   state.liveEvents = [...(state.liveEvents || []).filter(item => item.id !== event.id), event].slice(-18);
   renderWorkLog();
-  if (event.result || event.error) notify(`${event.agent || "Jarvis"} · ${event.result || event.error}`, event.status === "error" ? "error" : "info");
-  if (event.step === "done" || event.status === "error") get("/agents").then(payload => { state.agents = payload.agents || []; if (document.querySelector("#view-agents.active")) renderAgents(); }).catch(() => {});
+  if (event.result || event.error) notify(`${event.agent || "Raven"} · ${event.result || event.error}`, event.status === "error" ? "error" : "info");
+  if (event.step === "done" || event.status === "error") {
+    get("/agents").then(payload => { state.agents = payload.agents || []; if (document.querySelector("#view-agents.active")) renderAgents(); }).catch(() => {});
+    liveWorkHideTimer = setTimeout(() => { state.liveEvents = []; renderWorkLog(); liveWorkHideTimer = null; }, 2500);
+  }
 }
 
 function renderWorkLog() {
   const host = $("#messages");
   if (!host) return;
   host.querySelector(".live-work-log")?.remove();
+  if (state.liveEventChatId && state.liveEventChatId !== state.activeChatId) return;
   const values = state.liveEvents || [];
   if (!values.length) return;
   const labels = {received:"Požadavek přijat",analysis:"Analyzuji zadání",plan:"Připravuji plán",context:"Hledám souvislosti",execute:"Provádím akci",edit:"Upravuji soubory",test:"Ověřuji výsledek",review:"Kontroluji práci",done:"Úkol dokončen",error:"Chyba"};
   const section = document.createElement("section");
   section.className = "live-work-log";
-  section.innerHTML = `<header><span></span><b>Průběh práce</b><small>${values.length} kroků</small></header><div>${values.map(item => `<article class="${item.status === "error" ? "error" : item.status === "completed" ? "completed" : "working"}"><i></i><span><b>${escapeHtml(labels[item.step] || item.step)}</b><small>${escapeHtml(item.agent || "Jarvis")}${item.tool ? ` · ${escapeHtml(item.tool)}` : ""}${item.model ? ` · ${escapeHtml(item.model)}` : ""}</small><p>${escapeHtml(item.error || item.result || "Pracuji…")}</p></span></article>`).join("")}</div>`;
+  section.innerHTML = `<header><span></span><b>Průběh práce</b><small>${values.length} kroků</small></header><div>${values.map(item => `<article class="${item.status === "error" ? "error" : item.status === "completed" ? "completed" : "working"}"><i></i><span><b>${escapeHtml(labels[item.step] || item.step)}</b><small>${escapeHtml(item.agent || "Raven")}${item.tool ? ` · ${escapeHtml(item.tool)}` : ""}${item.model ? ` · ${escapeHtml(item.model)}` : ""}</small><p>${escapeHtml(item.error || item.result || "Pracuji…")}</p></span></article>`).join("")}</div>`;
   const finalAnswer = [...host.querySelectorAll(".message.assistant")].at(-1);
   if (finalAnswer && values.some(item => item.step === "done" || item.status === "error")) host.insertBefore(section, finalAnswer);
-  else host.appendChild(section);
+  else host.insertBefore(section, host.querySelector("#change-card"));
+  $("#empty-chat").classList.add("hidden");
   host.scrollTop = host.scrollHeight;
 }
 
@@ -88,17 +100,17 @@ renderAgents = function() {
   }).join("");
   $$('[data-agent]').forEach(button => button.onclick = () => { state.activeAgentId = button.dataset.agent; renderAgents(); renderAgentDetail(); });
   $$('[data-add-agent-group]').forEach(button => button.onclick = () => openAgentDialog(null, button.dataset.addAgentGroup));
-  $$('[data-branch]').forEach(button => button.onclick = () => { const group = button.dataset.branch; collapsedBranches.has(group) ? collapsedBranches.delete(group) : collapsedBranches.add(group); localStorage.setItem("jarvis-collapsed-branches", JSON.stringify([...collapsedBranches])); renderAgents(); });
+  $$('[data-branch]').forEach(button => button.onclick = () => { const group = button.dataset.branch; collapsedBranches.has(group) ? collapsedBranches.delete(group) : collapsedBranches.add(group); localStorage.setItem("raven-collapsed-branches", JSON.stringify([...collapsedBranches])); renderAgents(); });
   renderAgentDetail();
 };
 
 renderAgentDetail = function() {
   const agent = state.agents.find(item => item.id === state.activeAgentId);
   if (!agent) { $("#agent-detail").innerHTML = '<div class="empty-detail">Vyber agenta ve stromu.</div>'; return; }
-  $("#agent-detail").innerHTML = `<h2>${escapeHtml(agent.name)}</h2><p>${escapeHtml(agent.role || "")}</p><section class="detail-section"><small>Stav a průběh</small><p>${escapeHtml(agent.status || "ready")} · ${Number(agent.progress || 0)} % · ${escapeHtml(agent.current_step || "Připraven")}</p></section><section class="detail-section"><small>Model</small><p>${escapeHtml(agent.model || "automatic")}</p></section><section class="detail-section"><small>Nástroje</small><p>${escapeHtml((agent.tools || agent.permissions || []).join(", ") || "Žádné")}</p></section><section class="detail-section"><small>Cesta závislostí</small><p>${escapeHtml((agent.dependencies || []).join(" → ") || "Jarvis")}${agent.dependencies?.length ? ` → ${escapeHtml(agent.id)}` : ""}</p></section><section class="detail-section"><small>Aktuální úkol</small><p>${escapeHtml(agent.current_task || "Žádný")}</p></section><section class="detail-section"><small>Výsledek / chyba</small><p>${escapeHtml(agent.error || agent.last_result || "Zatím bez výsledku")}</p></section><footer><button id="edit-agent" type="button">Upravit</button>${agent.id !== "jarvis" ? '<button data-agent-action="start" type="button">Spustit</button><button data-agent-action="pause" type="button">Pozastavit</button><button data-agent-action="stop" type="button">Zastavit</button><button data-agent-action="retry" type="button">Opakovat</button><button id="delete-agent" type="button">Smazat</button>' : ""}</footer>`;
+  $("#agent-detail").innerHTML = `<h2>${escapeHtml(agent.name)}</h2><p>${escapeHtml(agent.role || "")}</p><section class="detail-section"><small>Stav a průběh</small><p>${escapeHtml(agent.status || "ready")} · ${Number(agent.progress || 0)} % · ${escapeHtml(agent.current_step || "Připraven")}</p></section><section class="detail-section"><small>Model</small><p>${escapeHtml(agent.model || "automatic")}</p></section><section class="detail-section"><small>Nástroje</small><p>${escapeHtml((agent.tools || agent.permissions || []).join(", ") || "Žádné")}</p></section><section class="detail-section"><small>Cesta závislostí</small><p>${escapeHtml((agent.dependencies || []).join(" → ") || "Raven")}${agent.dependencies?.length ? ` → ${escapeHtml(agent.id)}` : ""}</p></section><section class="detail-section"><small>Aktuální úkol</small><p>${escapeHtml(agent.current_task || "Žádný")}</p></section><section class="detail-section"><small>Výsledek / chyba</small><p>${escapeHtml(agent.error || agent.last_result || "Zatím bez výsledku")}</p></section><footer><button id="edit-agent" type="button">Upravit</button>${agent.id !== "raven" ? '<button data-agent-action="start" type="button">Spustit</button><button data-agent-action="pause" type="button">Pozastavit</button><button data-agent-action="stop" type="button">Zastavit</button><button data-agent-action="retry" type="button">Opakovat</button><button id="delete-agent" type="button">Smazat</button>' : ""}</footer>`;
   $("#edit-agent").onclick = () => openAgentDialog(agent, groupFor(agent));
   $$('[data-agent-action]').forEach(button => button.onclick = async () => { const data = await post("/agents/action", { agent_id: agent.id, action: button.dataset.agentAction }); state.agents = data.agents; renderAgents(); });
-  if (agent.id !== "jarvis") $("#delete-agent").onclick = async () => { if (await confirmAction(`Odstranit agenta ${agent.name}?`)) { const data = await post("/agents/delete", { id: agent.id }); state.agents = data.agents; state.activeAgentId = "jarvis"; renderAgents(); } };
+  if (agent.id !== "raven") $("#delete-agent").onclick = async () => { if (await confirmAction(`Odstranit agenta ${agent.name}?`)) { const data = await post("/agents/delete", { id: agent.id }); state.agents = data.agents; state.activeAgentId = "raven"; renderAgents(); } };
 };
 
 const oldRenderSettings = renderSettings;
@@ -189,7 +201,7 @@ renderWorkspace = async function() {
   desktop?.browser.setVisible(false);
   if (state.workspace === "browser") { if (desktop) renderBrowser(c); else oldRenderWorkspace(); return; }
   if (state.workspace === "files") { await renderFiles(); return; }
-  if (state.workspace === "artifacts") { try { const data = await desktop.listFiles("C:\\projektjarvis\\runtime\\artifacts"); c.innerHTML = data.entries.map(item => `<div class="workspace-entry">${escapeHtml(item.name)}<small>${item.size || 0} B</small></div>`).join("") || '<p class="muted">Zatím nejsou žádné artefakty.</p>'; } catch { c.innerHTML = '<p class="muted">Zatím nejsou žádné artefakty.</p>'; } return; }
+  if (state.workspace === "artifacts") { try { const data = await desktop.listFiles("C:\\Raven\\runtime\\artifacts"); c.innerHTML = data.entries.map(item => `<div class="workspace-entry">${escapeHtml(item.name)}<small>${item.size || 0} B</small></div>`).join("") || '<p class="muted">Zatím nejsou žádné artefakty.</p>'; } catch { c.innerHTML = '<p class="muted">Zatím nejsou žádné artefakty.</p>'; } return; }
   await oldRenderWorkspace();
 };
 
@@ -203,6 +215,7 @@ const oldShowView = showView;
 showView = function(name) {
   desktop?.browser.setVisible(false);
   oldShowView(name);
+  $("#task-progress").classList.add("hidden");
   if (name !== "web" && state.workspace === "browser" && !$("#app-shell").classList.contains("workspace-hidden")) renderWorkspace();
   requestAnimationFrame(syncBrowserBounds);
 };
@@ -211,20 +224,54 @@ async function refreshChangeCard() {
   if (!desktop) return;
   try {
     const summary = await desktop.gitSummary(); const card = $("#change-card");
-    card.classList.toggle("hidden", !summary.count);
-    if (!summary.count) return;
-    card.innerHTML = `<header><b>Upraveno ${summary.count} ${summary.count === 1 ? "soubor" : "souborů"}</b><span class="counts"><span class="plus">+${summary.added}</span> <span class="minus">-${summary.removed}</span></span><button id="change-open-diff" type="button">Změny</button></header><details><summary>Seznam souborů</summary><div class="change-card-files">${summary.entries.map(escapeHtml).join("<br>")}</div></details>`;
+    const signature = JSON.stringify([summary.count, summary.added, summary.removed, summary.entries]);
+    if (!changeBaseline) { changeBaseline = summary; lastChangeSignature = signature; card.classList.add("hidden"); return; }
+    const baselineSignature = JSON.stringify([changeBaseline.count, changeBaseline.added, changeBaseline.removed, changeBaseline.entries]);
+    if (signature === baselineSignature || changeCardDismissed) { card.classList.add("hidden"); return; }
+    if (signature !== lastChangeSignature) { lastChangeSignature = signature; clearTimeout(changeCardHideTimer); changeCardHideTimer = null; }
+    const added = Math.abs(Number(summary.added || 0) - Number(changeBaseline.added || 0));
+    const removed = Math.abs(Number(summary.removed || 0) - Number(changeBaseline.removed || 0));
+    const previous = new Set(changeBaseline.entries || []);
+    const changedEntries = (summary.entries || []).filter(entry => !previous.has(entry));
+    const visibleEntries = changedEntries.length ? changedEntries : summary.entries || [];
+    const changedCount = Math.max(changedEntries.length, 1);
+    card.classList.remove("hidden");
+    card.innerHTML = `<header><b>Aktuální úkol změnil ${changedCount} ${changedCount === 1 ? "soubor" : "souborů"}</b><span class="counts"><span class="plus">+${added}</span> <span class="minus">-${removed}</span></span><button id="change-open-diff" type="button">Změny</button><button id="change-card-close" class="change-card-close" type="button" title="Skrýt">×</button></header><details><summary>Seznam souborů</summary><div class="change-card-files">${visibleEntries.map(escapeHtml).join("<br>")}</div></details>`;
     $("#change-open-diff").onclick = () => { state.workspace = "git"; $("#app-shell").classList.remove("workspace-hidden"); renderWorkspace(); };
+    $("#change-card-close").onclick = () => { changeCardDismissed = true; clearTimeout(changeCardHideTimer); changeCardHideTimer = null; card.classList.add("hidden"); };
+    if (!state.running && !changeCardHideTimer) changeCardHideTimer = setTimeout(() => { card.classList.add("hidden"); changeCardHideTimer = null; }, 7000);
   } catch (_) {}
 }
 
+async function beginChangeTracking() {
+  if (!desktop) return;
+  try {
+    changeBaseline = await desktop.gitSummary();
+    lastChangeSignature = JSON.stringify([changeBaseline.count, changeBaseline.added, changeBaseline.removed, changeBaseline.entries]);
+    changeCardDismissed = false;
+    clearTimeout(changeCardHideTimer);
+    changeCardHideTimer = null;
+    $("#change-card").classList.add("hidden");
+  } catch (_) {}
+}
+
+const sendMessageWithChangeTracking = sendMessage;
+sendMessage = async function(text) {
+  await beginChangeTracking();
+  try { return await sendMessageWithChangeTracking(text); }
+  finally {
+    await refreshChangeCard();
+    if (!$("#change-card").classList.contains("hidden") && !changeCardHideTimer) changeCardHideTimer = setTimeout(() => { $("#change-card").classList.add("hidden"); changeCardHideTimer = null; }, 7000);
+  }
+};
+
 function setupWorkspaceResize() {
   const shell = $("#app-shell"), handle = $("#workspace-resizer");
-  const saved = Math.max(320, Math.min(900, Number(localStorage.getItem("jarvis-workspace-width")) || 430));
+  const saved = Math.max(320, Math.min(900, Number(localStorage.getItem("raven-workspace-width")) || 430));
   shell.style.setProperty("--workspace-w", `${saved}px`);
   handle.addEventListener("pointerdown", event => {
     event.preventDefault(); handle.setPointerCapture(event.pointerId); handle.classList.add("dragging");
-    const move = moveEvent => { const width = Math.max(320, Math.min(window.innerWidth * .68, window.innerWidth - moveEvent.clientX)); shell.style.setProperty("--workspace-w", `${width}px`); localStorage.setItem("jarvis-workspace-width", String(Math.round(width))); syncBrowserBounds(); };
+    const move = moveEvent => { const width = Math.max(320, Math.min(window.innerWidth * .68, window.innerWidth - moveEvent.clientX)); shell.style.setProperty("--workspace-w", `${width}px`); localStorage.setItem("raven-workspace-width", String(Math.round(width))); syncBrowserBounds(); };
     const up = () => { handle.classList.remove("dragging"); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); };
     handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
   });

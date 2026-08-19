@@ -1,4 +1,4 @@
-"""Lokální sběr hardwarové telemetrie pro HUD JARVIS.
+"""Lokální sběr hardwarové telemetrie pro HUD RAVEN.
 
 Čte výhradně localhost rozhraní Libre Hardware Monitor a ukládá JSON pro HUD.
 Pokud senzor není k dispozici, neodhadujeme hodnoty – zobrazí se jako N/A.
@@ -124,7 +124,7 @@ def walk(node: dict[str, Any], hardware: str = "") -> list[dict[str, Any]]:
 def fetch_sensors() -> list[dict[str, Any]]:
     """Načte senzory pouze z lokálního LHM serveru."""
     global SENSOR_CACHE
-    request = urllib.request.Request(SENSOR_URL, headers={"User-Agent": "JarvisLocalHUD/1"})
+    request = urllib.request.Request(SENSOR_URL, headers={"User-Agent": "RavenLocalHUD/1"})
     try:
         with urllib.request.urlopen(request, timeout=1.5) as response:
             data = json.loads(response.read().decode("utf-8"))

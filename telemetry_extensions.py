@@ -1,4 +1,4 @@
-"""Volitelné lokální rozšíření telemetrie JARVIS pro Windows.
+"""Volitelné lokální rozšíření telemetrie RAVEN pro Windows.
 
 Každý náročnější sběrač se spustí pouze tehdy, když je jeho přepínač aktivní.
 Modul nepoužívá placené ani vzdálené služby a nedoplňuje chybějící hodnoty odhadem.
@@ -221,7 +221,7 @@ def process_handles(pid: int) -> dict[str, Any]:
     if not binary.is_file():
         return {"available": False, "reason": "Microsoft Handle není nainstalován.", "registry": [], "files": []}
     if not is_admin():
-        return {"available": False, "reason": "Registry handly vyžadují spuštění JARVISu jako správce.", "registry": [], "files": []}
+        return {"available": False, "reason": "Registry handly vyžadují spuštění RAVENu jako správce.", "registry": [], "files": []}
     now = time.monotonic()
     cached = HANDLE_CACHE.get(pid)
     if cached and now - cached[0] < 30:
@@ -405,7 +405,7 @@ def presentmon_sample(processes: list[dict[str, Any]]) -> dict[str, Any]:
     target = max(candidates, key=lambda item: float(item.get("gpu_percent") or 0))
     command = [
         str(binary), "--process_id", str(target["pid"]), "--timed", "1", "--terminate_after_timed",
-        "--output_stdout", "--no_console_stats", "--v1_metrics", "--session_name", "JarvisPresentMon",
+        "--output_stdout", "--no_console_stats", "--v1_metrics", "--session_name", "RavenPresentMon",
     ]
     try:
         capture = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -487,9 +487,9 @@ def collect_extended(
         result["fan_curves"] = [{"temperature": max(row["temperatures"], default=None), "fan_rpm": row.get("fan_rpm"), "time": row["time"]} for row in list(HISTORY)[-300:]]
     if enabled(features, "bottleneck_advice"):
         result["bottleneck"] = bottleneck(system, gpu_load)
-    if enabled(features, "jarvis_usage_separation"):
+    if enabled(features, "raven_usage_separation"):
         own = [item for item in processes if str(item.get("executable") or "").lower().startswith(str(ROOT).lower())]
-        result["jarvis_usage"] = {"processes": len(own), "cpu_percent": round(sum(float(item.get("cpu_percent") or 0) for item in own), 1), "memory_mb": round(sum(float(item.get("memory_mb") or 0) for item in own), 1)}
+        result["raven_usage"] = {"processes": len(own), "cpu_percent": round(sum(float(item.get("cpu_percent") or 0) for item in own), 1), "memory_mb": round(sum(float(item.get("memory_mb") or 0) for item in own), 1)}
     if enabled(features, "fps_monitoring") or enabled(features, "frametime_monitoring"):
         result["gaming_capture"] = presentmon_sample(processes)
     if enabled(features, "game_session_compare"):

@@ -1,7 +1,9 @@
-Jarvis 1.0
-Copyright 2026 contributors to Jarvis.
+Raven 1.0
+Copyright 2026 contributors to Raven.
 
-This product includes or integrates with OpenJarvis:
+The Raven installer downloads and integrates OpenJarvis as an independent
+runtime dependency. OpenJarvis source code is not bundled in the Raven
+repository or installer:
 Copyright 2025 The OpenJarvis Authors.
 Licensed under the Apache License, Version 2.0.
 Source: https://github.com/open-jarvis/OpenJarvis
@@ -19,9 +21,12 @@ Integrated or optional independent components:
 - Playwright, Apache-2.0 License: https://github.com/microsoft/playwright
 - LibreHardwareMonitor, MPL-2.0: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
 - psutil, BSD 3-Clause License: https://github.com/giampaolo/psutil
+- Qwen 3.5 4B, Apache-2.0 License: https://ollama.com/library/qwen3.5:4b
+- Qwen 2.5 Coder 7B, Apache-2.0 License:
+  https://ollama.com/library/qwen2.5-coder:7b
 
 Architecture and UX references (no source code from these projects is
-distributed as part of Jarvis 1.0):
+distributed as part of Raven 1.0):
 - Open WebUI, current custom Open WebUI License with branding conditions;
   older revisions have separate MIT/BSD-3-Clause terms:
   https://github.com/open-webui/open-webui
@@ -31,7 +36,7 @@ distributed as part of Jarvis 1.0):
 - agenticSeek, GPL-3.0 License: https://github.com/Fosowl/agenticSeek
 
 These projects were reviewed as architectural and user-experience references.
-Jarvis does not claim their names, logos, endorsement, or authorship. Their
+Raven does not claim their names, logos, endorsement, or authorship. Their
 licenses continue to govern their own code and distributions.
 
 Gemini API, OpenRouter, Groq, Cerebras, Mistral, GitHub Models and Cloudflare

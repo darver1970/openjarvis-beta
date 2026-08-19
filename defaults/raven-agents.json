@@ -1,9 +1,9 @@
 {
-  "active_agent_id": "jarvis",
+  "active_agent_id": "raven",
   "agents": [
     {
-      "id": "jarvis",
-      "name": "JARVIS",
+      "id": "raven",
+      "name": "RAVEN",
       "role": "Koordinátor",
       "model": "qwen3.5:4b",
       "status": "ready",
@@ -13,6 +13,30 @@
       "permissions": [
         "Lokální konverzace",
         "Správa fronty agentů"
+      ]
+    },
+    {
+      "id": "analyst",
+      "name": "Analytik",
+      "group": "Planning",
+      "role": "Analýza dat, plánů a souvislostí",
+      "model": "qwen3.5:9b",
+      "status": "ready",
+      "tools": [
+        "data-analysis",
+        "planning",
+        "context"
+      ],
+      "dependencies": [
+        "planner"
+      ],
+      "rules": [
+        "Rozlišuje ověřená data, odhady a chybějící informace.",
+        "Závěry předává Ravenovi v přehledné a kontrolovatelné podobě."
+      ],
+      "permissions": [
+        "Lokální analýza textů a dat",
+        "Tvorba plánů"
       ]
     },
     {
@@ -60,7 +84,7 @@
       ],
       "permissions": [
         "Návrh automatizace",
-        "Předání potvrzeného PowerShellu JARVISu"
+        "Předání potvrzeného PowerShellu RAVENu"
       ]
     },
     {

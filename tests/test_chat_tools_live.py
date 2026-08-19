@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from jarvis_intelligence import known_desktop
+from raven_intelligence import known_desktop
 
 
 API = "http://127.0.0.1:8126"
@@ -22,7 +22,7 @@ def request(path: str, payload: dict | None = None) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def test_jarvis_chat_really_creates_and_verifies_desktop_file() -> None:
+def test_raven_chat_really_creates_and_verifies_desktop_file() -> None:
     target: Path = known_desktop() / "test.txt"
     if target.exists():
         pytest.skip("Na ploše už existuje uživatelův test.txt; nesmí být přepsán.")
@@ -31,11 +31,11 @@ def test_jarvis_chat_really_creates_and_verifies_desktop_file() -> None:
         response = request("/chat", {
             "model": "automatic",
             "simulate": False,
-            "messages": [{"role": "user", "content": 'Vytvoř soubor test.txt na ploše s obsahem "Jarvis live test"'}],
+            "messages": [{"role": "user", "content": 'Vytvoř soubor test.txt na ploše s obsahem "Raven live test"'}],
         })
         assert response["provider"] == "local-tool"
         assert target.is_file()
-        assert target.read_text(encoding="utf-8") == "Jarvis live test"
+        assert target.read_text(encoding="utf-8") == "Raven live test"
         events = request("/events/recent")["events"]
         steps = [item["step"] for item in events[-12:]]
         for required in ("plan", "execute", "test", "review", "done"):

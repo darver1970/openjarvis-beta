@@ -7,9 +7,9 @@ import pytest
 from pydantic import ValidationError
 
 from agent_runtime import AgentRuntime, AgentTask
-import jarvis_control
-from jarvis_control import JARVIS_SYSTEM_PROMPT, automatic_provider_order, generate_artifact_content, normalize_provider, provider_status
-from jarvis_intelligence import detect_local_file_action, execute_file_action
+import raven_control
+from raven_control import RAVEN_SYSTEM_PROMPT, automatic_provider_order, generate_artifact_content, normalize_provider, provider_status
+from raven_intelligence import detect_local_file_action, execute_file_action
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,8 +20,8 @@ def test_version_is_one_zero() -> None:
 
 
 def test_system_prompt_forbids_invented_provider_state() -> None:
-    assert "nevkládej vlastní provozní stav" in JARVIS_SYSTEM_PROMPT
-    assert "údaje zobrazuje rozhraní Jarvisu samo" in JARVIS_SYSTEM_PROMPT
+    assert "nevkládej vlastní provozní stav" in RAVEN_SYSTEM_PROMPT
+    assert "údaje zobrazuje rozhraní Ravenu samo" in RAVEN_SYSTEM_PROMPT
 
 
 def test_free_provider_catalog_has_required_order_and_no_grok() -> None:
@@ -91,7 +91,7 @@ def test_html_page_request_is_detected_without_word_file(tmp_path: Path) -> None
 
 
 def test_generated_artifact_strips_markdown_fence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(jarvis_control, "automatic_provider_request", lambda *_: ("gemini_free", "```html\n<!doctype html><html><style>body{color:white}</style><body>Ahoj</body></html>\n```", []))
+    monkeypatch.setattr(raven_control, "automatic_provider_request", lambda *_: ("gemini_free", "```html\n<!doctype html><html><style>body{color:white}</style><body>Ahoj</body></html>\n```", []))
     provider, content, fallbacks = generate_artifact_content("Vytvoř stránku", str(tmp_path / "index.html"))
     assert provider == "gemini_free"
     assert content.endswith("</html>")
@@ -99,33 +99,33 @@ def test_generated_artifact_strips_markdown_fence(monkeypatch: pytest.MonkeyPatc
 
 
 def test_generated_html_uses_local_template_for_truncated_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(jarvis_control, "automatic_provider_request", lambda *_: ("gemini_free", "<!doctype html><html><style>", []))
+    monkeypatch.setattr(raven_control, "automatic_provider_request", lambda *_: ("gemini_free", "<!doctype html><html><style>", []))
     provider, content, fallbacks = generate_artifact_content("Vytvoř stránku", str(tmp_path / "index.html"))
     assert provider == "local-template"
     assert content.endswith("</html>")
-    assert "Vítejte v Jarvis AI" in content
+    assert "Vítejte v Raven AI" in content
     assert fallbacks[0]["provider"] == "gemini_free"
 
 
 def test_generated_html_rejects_unrequested_controls_and_bad_welcome(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    bad = "<!doctype html><html><style>body{color:white}</style><body><p>Vítejte v Jarvis AI - nesmysl.</p><button onclick='x()'>Klik</button></body></html>"
-    monkeypatch.setattr(jarvis_control, "automatic_provider_request", lambda *_: ("gemini_free", bad, []))
-    provider, content, fallbacks = generate_artifact_content("Přidej uvítací zprávu Vítejte v Jarvis AI", str(tmp_path / "index.html"))
+    bad = "<!doctype html><html><style>body{color:white}</style><body><p>Vítejte v Raven AI - nesmysl.</p><button onclick='x()'>Klik</button></body></html>"
+    monkeypatch.setattr(raven_control, "automatic_provider_request", lambda *_: ("gemini_free", bad, []))
+    provider, content, fallbacks = generate_artifact_content("Přidej uvítací zprávu Vítejte v Raven AI", str(tmp_path / "index.html"))
     assert provider == "local-template"
     assert "<button" not in content
-    assert "<p>Vítejte v Jarvis AI.</p>" in content
+    assert "<p>Vítejte v Raven AI.</p>" in content
     assert fallbacks
 
 
 def test_full_access_file_tool_writes_and_verifies(tmp_path: Path) -> None:
     target = tmp_path / "test.txt"
     result = execute_file_action(
-        {"action": "create_text_file", "path": str(target), "content": "Jarvis test"},
+        {"action": "create_text_file", "path": str(target), "content": "Raven test"},
         "full",
     )
     assert result["status"] == "completed"
     assert result["verified"] is True
-    assert target.read_text(encoding="utf-8") == "Jarvis test"
+    assert target.read_text(encoding="utf-8") == "Raven test"
 
 
 def test_simulation_and_denied_mode_never_write(tmp_path: Path) -> None:

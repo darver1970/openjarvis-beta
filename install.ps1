@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Instaluje Jarvis 1.0 do jediné projektové složky.
+    Instaluje Raven 1.0 do jediné projektové složky.
 
 .DESCRIPTION
     Stahuje pouze bezplatné závislosti z oficiálních zdrojů, založí lokální
-    OpenJarvis backend, vytvoří konfiguraci a zástupce na ploše. Neodesílá
+    samostatný OpenJarvis runtime, vytvoří konfiguraci a zástupce na ploše. Neodesílá
     obsah instalace ani uživatelská data mimo počítač.
 #>
 [CmdletBinding()]
@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 $sourceRoot = $PSScriptRoot
 
 function Write-Step([string]$Message) {
-    Write-Host "[JARVIS] $Message" -ForegroundColor Cyan
+    Write-Host "[RAVEN] $Message" -ForegroundColor Cyan
 }
 
 function Assert-Command([string]$Name) {
@@ -28,11 +28,11 @@ function Assert-Command([string]$Name) {
     return $command.Source
 }
 
-function Copy-JarvisFiles([string]$From, [string]$To) {
+function Copy-RavenFiles([string]$From, [string]$To) {
     $fileNames = @(
-        '.gitignore', 'LICENSE', 'NOTICE', 'README.md', 'VERSION', 'install.ps1', 'spustit-jarvis.ps1',
-        'hardware_monitor.py', 'telemetry_extensions.py', 'jarvis_control.py', 'network_monitor.py',
-        'agent_runtime.py', 'jarvis_intelligence.py'
+        '.gitignore', 'LICENSE', 'NOTICE', 'README.md', 'RELEASE_NOTES.md', 'VERSION', 'install.ps1', 'spustit-raven.ps1',
+        'hardware_monitor.py', 'telemetry_extensions.py', 'raven_control.py', 'network_monitor.py',
+        'agent_runtime.py', 'raven_intelligence.py'
     )
     foreach ($name in $fileNames) {
         Copy-Item -LiteralPath (Join-Path $From $name) -Destination (Join-Path $To $name) -Force
@@ -74,21 +74,21 @@ function Ensure-Node {
     }
     if (-not $command) { throw 'Node.js se po instalaci nepodařilo najít.' }
     $version = [Version]((& $command.Source --version) -replace '^v', '')
-    if ($version.Major -lt 22) { throw "Jarvis vyžaduje Node.js 22+, nalezena verze $version." }
+    if ($version.Major -lt 22) { throw "Raven vyžaduje Node.js 22+, nalezena verze $version." }
     return $command
 }
 
 if (-not $InstallPath) {
-    $defaultDrive = 'C:\projektjarvis'
+    $defaultDrive = 'C:\Raven'
     Write-Host ''
-    Write-Host 'Zvolte jednu pracovní složku pro celý Jarvis, modely, runtime a data.' -ForegroundColor Yellow
-    $InstallPath = Read-Host "Cílová složka Jarvisu [výchozí: $defaultDrive]"
+    Write-Host 'Zvolte jednu pracovní složku pro celý Raven, modely, runtime a data.' -ForegroundColor Yellow
+    $InstallPath = Read-Host "Cílová složka Ravenu [výchozí: $defaultDrive]"
     if (-not $InstallPath) { $InstallPath = $defaultDrive }
 }
 
 $installRoot = [System.IO.Path]::GetFullPath($InstallPath)
 $sourceRoot = [System.IO.Path]::GetFullPath($sourceRoot)
-$installMarker = Join-Path $installRoot '.jarvis-installing'
+$installMarker = Join-Path $installRoot '.raven-installing'
 if ($installRoot.Length -lt 4 -or $installRoot -eq $installRoot.Substring(0, 3)) {
     throw 'Jako cíl nelze použít kořen disku. Zvolte samostatnou složku.'
 }
@@ -102,15 +102,15 @@ if ($drive.AvailableFreeSpace -lt 24GB) {
 if ($installRoot -ne $sourceRoot) {
     $resuming = Test-Path -LiteralPath $installMarker
     if (Test-Path -LiteralPath $installRoot) {
-        $existing = Get-ChildItem -LiteralPath $installRoot -Force | Where-Object Name -ne '.jarvis-installing' | Select-Object -First 1
+        $existing = Get-ChildItem -LiteralPath $installRoot -Force | Where-Object Name -ne '.raven-installing' | Select-Object -First 1
         if ($existing -and -not $resuming) { throw "Cílová složka není prázdná: $installRoot" }
     }
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    Set-Content -LiteralPath $installMarker -Value 'Jarvis 1.0 installation in progress' -Encoding utf8
-    Write-Step "Kopíruji soubory Jarvis 1.0 do $installRoot"
-    Copy-JarvisFiles -From $sourceRoot -To $installRoot
+    Set-Content -LiteralPath $installMarker -Value 'Raven 1.0 installation in progress' -Encoding utf8
+    Write-Step "Kopíruji soubory Raven 1.0 do $installRoot"
+    Copy-RavenFiles -From $sourceRoot -To $installRoot
 } else {
-    Set-Content -LiteralPath $installMarker -Value 'Jarvis 1.0 installation in progress' -Encoding utf8
+    Set-Content -LiteralPath $installMarker -Value 'Raven 1.0 installation in progress' -Encoding utf8
 }
 
 $runtime = Join-Path $installRoot 'runtime'
@@ -173,14 +173,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Instalace agentních komponent selhala.' }
 & $python -m pip check
 if ($LASTEXITCODE -ne 0) { throw 'Python závislosti agentního jádra nejsou kompatibilní.' }
 
-Write-Step 'Vytvářím lokální konfiguraci Jarvis 1.0.'
+Write-Step 'Vytvářím lokální konfiguraci Raven 1.0.'
 foreach ($template in Get-ChildItem -LiteralPath (Join-Path $installRoot 'defaults') -Filter '*.json') {
     $destination = Join-Path $runtime $template.Name
     if (-not (Test-Path -LiteralPath $destination)) {
         Copy-Item -LiteralPath $template.FullName -Destination $destination
     }
 }
-$settingsPath = Join-Path $runtime 'jarvis-settings.json'
+$settingsPath = Join-Path $runtime 'raven-settings.json'
 $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
 $settings | Add-Member -NotePropertyName storage_root -NotePropertyValue $installRoot -Force
 $settings | Add-Member -NotePropertyName ai_provider -NotePropertyValue 'automatic' -Force
@@ -195,15 +195,15 @@ $npm = Assert-Command 'npm.cmd'
 $desktopPath = Join-Path $installRoot 'desktop'
 $electronProject = Join-Path $installRoot 'desktop-electron'
 if (-not (Test-Path -LiteralPath (Join-Path $electronProject 'package.json'))) {
-    throw 'Zdroj desktopové vrstvy Jarvise chybí.'
+    throw 'Zdroj desktopové vrstvy Raven chybí.'
 }
 & $npm install --prefix $electronProject --no-audit --no-fund
 if ($LASTEXITCODE -ne 0) { throw 'Instalace bezplatných desktopových závislostí selhala.' }
 & $npm run --prefix $electronProject pack:portable
 if ($LASTEXITCODE -ne 0) { throw 'Vytvoření desktopového EXE selhalo.' }
-$builtDesktop = Join-Path $installRoot 'desktop-dist\Jarvis-Desktop.exe'
-if (-not (Test-Path -LiteralPath $builtDesktop)) { throw 'Sestavený Jarvis-Desktop.exe nebyl nalezen.' }
-Copy-Item -LiteralPath $builtDesktop -Destination (Join-Path $desktopPath 'Jarvis-Desktop.exe') -Force
+$builtDesktop = Join-Path $installRoot 'desktop-dist\Raven-Desktop.exe'
+if (-not (Test-Path -LiteralPath $builtDesktop)) { throw 'Sestavený Raven-Desktop.exe nebyl nalezen.' }
+Copy-Item -LiteralPath $builtDesktop -Destination (Join-Path $desktopPath 'Raven-Desktop.exe') -Force
 
 if (-not $SkipModel) {
     $ollamaPath = Join-Path $runtime 'ollama\ollama.exe'
@@ -222,7 +222,7 @@ if (-not $SkipModel) {
         }
     }
     if (Test-Path -LiteralPath $ollamaPath) {
-        foreach ($model in @('qwen3.5:4b', 'qwen2.5-coder:7b')) {
+        foreach ($model in @('qwen3.5:4b', 'qwen3.5:9b', 'qwen2.5-coder:7b')) {
             Write-Step "Stahuji lokální bezplatný model $model."
             & $ollamaPath pull $model
             if ($LASTEXITCODE -ne 0) { Write-Warning "Model $model se nestáhl. Později spusťte: ollama pull $model" }
@@ -262,7 +262,7 @@ New-Item -ItemType Directory -Path $env:OPENCLAW_STATE_DIR, $env:OPENCLAW_WORKSP
 $openClawCommand = Join-Path $openClawRoot 'node_modules\.bin\openclaw.cmd'
 & $openClawCommand exec-policy preset deny-all
 if ($LASTEXITCODE -ne 0) { throw 'Nelze nastavit bezpečnostní politiku OpenClaw.' }
-$agentsPath = Join-Path $runtime 'jarvis-agents.json'
+$agentsPath = Join-Path $runtime 'raven-agents.json'
 $agents = Get-Content -LiteralPath $agentsPath -Raw | ConvertFrom-Json
 $openClawAgent = $agents.agents | Where-Object { $_.id -eq 'openclaw' } | Select-Object -First 1
 if ($openClawAgent) {
@@ -316,18 +316,18 @@ try {
     Write-Warning 'Microsoft Handle se nepodařilo ověřit; registry handly zůstanou nedostupné.'
 }
 
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Jarvis 1.0.lnk'
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Raven 1.0.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installRoot\spustit-jarvis.ps1`""
+$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installRoot\spustit-raven.ps1`""
 $shortcut.WorkingDirectory = $installRoot
-$shortcut.Description = 'Spustit lokální Jarvis 1.0'
-$shortcut.IconLocation = "$(Join-Path $desktopPath 'Jarvis-Desktop.exe'),0"
+$shortcut.Description = 'Spustit lokální Raven 1.0'
+$shortcut.IconLocation = "$(Join-Path $desktopPath 'Raven-Desktop.exe'),0"
 $shortcut.Save()
 
-$installConfigDirectory = Join-Path $env:LOCALAPPDATA 'Jarvis'
+$installConfigDirectory = Join-Path $env:LOCALAPPDATA 'Raven'
 New-Item -ItemType Directory -Path $installConfigDirectory -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $installConfigDirectory 'install-path.txt') -Value $installRoot -Encoding utf8
 Remove-Item -LiteralPath $installMarker -Force -ErrorAction SilentlyContinue
-Write-Step 'Instalace dokončena. Spusťte zástupce Jarvis 1.0 na ploše.'
+Write-Step 'Instalace dokončena. Spusťte zástupce Raven 1.0 na ploše.'

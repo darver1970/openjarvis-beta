@@ -1,6 +1,6 @@
 {
-  "project": "OpenJarvis Beta",
-  "summary": "Lokální JARVIS pro Windows s vlastním nativním HUD oknem a lokálním řízením.",
+  "project": "Raven 1.0",
+  "summary": "Lokální RAVEN pro Windows s vlastním nativním HUD oknem a lokálním řízením.",
   "entries": [
     {
       "type": "user_preference",
@@ -19,14 +19,14 @@
     {
       "type": "decision",
       "title": "GitHub po přesném příkazu",
-      "summary": "JARVIS smí vytvořit commit a push do existujícího repozitáře pouze po přesném příkazu: nahraj na github.",
+      "summary": "RAVEN smí vytvořit commit a push do existujícího repozitáře pouze po přesném příkazu: nahraj na github.",
       "source": "user",
       "created_at": "2026-08-16T15:30:00"
     },
     {
       "type": "decision",
       "title": "Vlastní desktopové okno",
-      "summary": "JARVIS se spouští jako Jarvis-Desktop.exe s vlastním názvem a ikonou, vestavěnými webovými kartami a bez rozšíření prohlížeče.",
+      "summary": "RAVEN se spouští jako Raven-Desktop.exe s vlastním názvem a ikonou, vestavěnými webovými kartami a bez rozšíření prohlížeče.",
       "source": "user",
       "created_at": "2026-08-16T15:30:00"
     }

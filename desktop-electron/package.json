@@ -1,15 +1,15 @@
 {
-  "name": "jarvis-desktop",
+  "name": "raven-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "Bezplatne lokalni desktopove rozhrani Jarvis 1.0",
-  "author": "Jarvis contributors",
+  "description": "Bezplatne lokalni desktopove rozhrani Raven 1.0",
+  "author": "Raven contributors",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "pack": "npm run pack:portable && npm run pack:installer",
-    "pack:portable": "electron-builder --win portable -c.artifactName=Jarvis-Desktop.exe",
-    "pack:installer": "electron-builder --win nsis -c.artifactName=Jarvis-1.0-Setup.exe"
+    "pack:portable": "electron-builder --win portable -c.artifactName=Raven-Desktop.exe",
+    "pack:installer": "electron-builder --win nsis -c.artifactName=Raven-1.0-Setup.exe"
   },
   "dependencies": {
     "monaco-editor": "^0.52.2"
@@ -19,18 +19,18 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "cz.jarvis.desktop",
-    "productName": "Jarvis 1.0",
+    "appId": "cz.raven.desktop",
+    "productName": "Raven 1.0",
     "asar": true,
     "directories": { "output": "../desktop-dist" },
     "files": ["main.js", "preload.js", "package.json", "node_modules/monaco-editor/**/*"],
     "extraResources": [
       {
         "from": "..",
-        "to": "jarvis-project",
+        "to": "raven-project",
         "filter": [
-          ".gitignore", "LICENSE", "NOTICE", "README.md", "VERSION",
-          "*.py", "*.ps1", "defaults/**/*", "hud/**/*", "desktop/jarvis.ico",
+          ".gitignore", "LICENSE", "NOTICE", "README.md", "RELEASE_NOTES.md", "VERSION",
+          "*.py", "*.ps1", "defaults/**/*", "hud/**/*", "desktop/raven.ico", "desktop/raven-logo.png",
           "desktop-electron/main.js", "desktop-electron/preload.js",
           "desktop-electron/package.json", "desktop-electron/package-lock.json",
           "!hud/hardware-status.json", "!hud/network-status.json", "!hud/voice-event.json",
@@ -38,7 +38,7 @@
         ]
       }
     ],
-    "win": { "target": ["nsis", "portable"], "icon": "../desktop/jarvis.ico", "executableName": "Jarvis" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Jarvis 1.0" }
+    "win": { "target": ["nsis", "portable"], "icon": "../desktop/raven.ico", "executableName": "Raven" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Raven 1.0" }
   }
 }

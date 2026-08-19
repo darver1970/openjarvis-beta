@@ -1,6 +1,8 @@
 # Lokální běh, modely, cache a soukromá data se nikdy nezveřejňují.
 runtime/
-desktop/
+desktop/*
+!desktop/raven.ico
+!desktop/raven-logo.png
 desktop-dist/
 desktop-electron/node_modules/
 node_modules/

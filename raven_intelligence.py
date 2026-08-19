@@ -1,8 +1,8 @@
-"""Prakticke agentni a znalostni jadro Jarvisu 1.0.
+"""Prakticke agentni a znalostni jadro Ravenu 1.0.
 
 Modul je zamerne bez placenych zavislosti. Poskytuje lokalni vyhledavani,
 bezpecne souborove nastroje, vratne body a provozni diagnostiku. Sitove modely
-zustavaji v ``jarvis_control.py`` a tento modul jim pouze pripravuje overeny
+zustavaji v ``raven_control.py`` a tento modul jim pouze pripravuje overeny
 kontext nebo provede uzivatelem vyslovne pozadovanou lokalni akci.
 """
 
@@ -238,7 +238,7 @@ def detect_local_file_action(prompt: str) -> dict[str, Any] | None:
         target = (known_desktop() if any(word in lower for word in ("ploše", "plose", "desktop")) else ROOT) / folder_name
         return {"action": "create_directory", "path": str(target.resolve())}
     if Path(filename).suffix.lower() not in SAFE_WRITE_EXTENSIONS:
-        raise ValueError("Jarvis muze timto bezpecnym nastrojem pracovat pouze s textovymi soubory.")
+        raise ValueError("Raven muze timto bezpecnym nastrojem pracovat pouze s textovymi soubory.")
     if absolute:
         target = Path(absolute.group(1).strip())
     elif any(word in lower for word in ("ploše", "plose", "desktop")):
@@ -330,7 +330,7 @@ def run_diagnostics(full: bool = False) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     for label, url in (
         ("HUD", "http://127.0.0.1:5174/"),
-        ("Jarvis API", "http://127.0.0.1:8126/settings"),
+        ("Raven API", "http://127.0.0.1:8126/settings"),
         ("Ollama/OpenJarvis", "http://127.0.0.1:8000/v1/models"),
         ("Ollama", "http://127.0.0.1:11434/api/tags"),
     ):

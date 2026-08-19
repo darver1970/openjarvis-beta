@@ -3,15 +3,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 
-const FIXED_ROOT = 'C:\\projektjarvis';
-const INSTALL_CONFIG = path.join(process.env.LOCALAPPDATA || path.dirname(process.execPath), 'Jarvis', 'install-path.txt');
+const FIXED_ROOT = 'C:\\Raven';
+const INSTALL_CONFIG = path.join(process.env.LOCALAPPDATA || path.dirname(process.execPath), 'Raven', 'install-path.txt');
 let SAVED_ROOT = '';
 try { SAVED_ROOT = fs.readFileSync(INSTALL_CONFIG, 'utf8').trim(); } catch {}
 const INSTALLED_ROOT = SAVED_ROOT && path.isAbsolute(SAVED_ROOT) ? path.resolve(SAVED_ROOT) : FIXED_ROOT;
-const INSTALL_MARKER = path.join(INSTALLED_ROOT, '.jarvis-installing');
-const BUNDLED_PROJECT = app.isPackaged ? path.join(process.resourcesPath, 'jarvis-project') : '';
+const INSTALL_MARKER = path.join(INSTALLED_ROOT, '.raven-installing');
+const BUNDLED_PROJECT = app.isPackaged ? path.join(process.resourcesPath, 'raven-project') : '';
 
-if (app.isPackaged && fs.existsSync(path.join(BUNDLED_PROJECT, 'install.ps1')) && (!fs.existsSync(path.join(INSTALLED_ROOT, 'jarvis_control.py')) || fs.existsSync(INSTALL_MARKER))) {
+if (app.isPackaged && !process.env.RAVEN_HOME && fs.existsSync(path.join(BUNDLED_PROJECT, 'install.ps1')) && (!fs.existsSync(path.join(INSTALLED_ROOT, 'raven_control.py')) || fs.existsSync(INSTALL_MARKER))) {
   const installer = path.join(BUNDLED_PROJECT, 'install.ps1');
   const escapedInstaller = installer.replace(/'/g, "''");
   const command = `Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList @('-NoProfile','-NoExit','-ExecutionPolicy','Bypass','-File','${escapedInstaller}')`;
@@ -20,9 +20,9 @@ if (app.isPackaged && fs.existsSync(path.join(BUNDLED_PROJECT, 'install.ps1')) &
   process.exit(0);
 }
 
-const ROOT = process.env.OPENJARVIS_HOME
-  ? path.resolve(process.env.OPENJARVIS_HOME)
-  : app.isPackaged && fs.existsSync(path.join(INSTALLED_ROOT, 'jarvis_control.py'))
+const ROOT = process.env.RAVEN_HOME
+  ? path.resolve(process.env.RAVEN_HOME)
+  : app.isPackaged && fs.existsSync(path.join(INSTALLED_ROOT, 'raven_control.py'))
     ? INSTALLED_ROOT
     : app.isPackaged && path.basename(path.dirname(process.execPath)).toLowerCase() === 'desktop'
       ? path.resolve(path.dirname(process.execPath), '..')
@@ -31,7 +31,7 @@ const RUNTIME = path.join(ROOT, 'runtime');
 const PROFILE = path.join(RUNTIME, 'electron-profile');
 const QUARANTINE = path.join(RUNTIME, 'quarantine');
 const SNAPSHOTS = path.join(RUNTIME, 'snapshots');
-const HUD_URL = 'http://127.0.0.1:5174/?desktop=electron&hud_version=1.0&asset_revision=jarvis-2';
+const HUD_URL = 'http://127.0.0.1:5174/?desktop=electron&hud_version=1.0&asset_revision=raven-8';
 const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.ps1', '.py', '.txt', '.yml', '.yaml', '.toml']);
 const HIDDEN = new Set(['.git', '.venv', '__pycache__', 'node_modules', 'pyinstaller-build', 'pyinstaller-spec']);
 let mainWindow;
@@ -44,8 +44,8 @@ fs.mkdirSync(PROFILE, { recursive: true });
 fs.mkdirSync(QUARANTINE, { recursive: true });
 fs.mkdirSync(SNAPSHOTS, { recursive: true });
 app.setPath('userData', PROFILE);
-app.setName('Jarvis 1.0');
-app.setAppUserModelId('cz.jarvis.desktop');
+app.setName('Raven 1.0');
+app.setAppUserModelId('cz.raven.desktop');
 const MAIN_LOG = path.join(RUNTIME, 'electron-main.log');
 const writeLog = value => { try { fs.appendFileSync(MAIN_LOG, `${new Date().toISOString()} ${value}\n`, 'utf8'); } catch {} };
 process.on('uncaughtException', error => writeLog(`uncaughtException ${error.stack || error}`));
@@ -58,7 +58,7 @@ app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()
 function safeProjectPath(relative = '') {
   const resolved = path.resolve(ROOT, String(relative || ''));
   const rel = path.relative(ROOT, resolved);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Cesta je mimo projekt Jarvisu.');
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('Cesta je mimo projekt Ravenu.');
   return resolved;
 }
 
@@ -143,7 +143,7 @@ function configureTab(tab) {
 function createTab(value = 'https://github.com/') {
   const url = safeUrl(value);
   const id = `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'persist:jarvis-web', backgroundThrottling: true } });
+  const view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'persist:raven-web', backgroundThrottling: true } });
   const tab = { id, view, url, title: 'Nová karta', loading: true, attached: true };
   tabs.set(id, tab);
   mainWindow.contentView.addChildView(view);
@@ -225,7 +225,7 @@ function installHandlers() {
     const backup = path.join(SNAPSHOTS, `edit-${Date.now()}`, backupName);
     fs.mkdirSync(path.dirname(backup), { recursive: true });
     fs.copyFileSync(file, backup);
-    const temporary = `${file}.jarvis-tmp`;
+    const temporary = `${file}.raven-tmp`;
     fs.writeFileSync(temporary, content, 'utf8');
     fs.renameSync(temporary, file);
     return { path: relative, bytes: Buffer.byteLength(content, 'utf8') };
@@ -268,13 +268,13 @@ function installHandlers() {
 }
 
 function createAuxWindow(display = '') {
-  const win = new BrowserWindow({ width: 1450, height: 900, backgroundColor: '#171715', title: 'Jarvis 1.0', icon: path.join(ROOT, 'desktop', 'jarvis.ico'), autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true } });
+  const win = new BrowserWindow({ width: 1450, height: 900, backgroundColor: '#171715', title: 'Raven 1.0', icon: path.join(ROOT, 'desktop', 'raven.ico'), autoHideMenuBar: true, titleBarStyle: 'hidden', titleBarOverlay: { color: '#191917', symbolColor: '#bdbdb7', height: 30 }, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true } });
   win.loadURL(display ? `${HUD_URL}&display=${encodeURIComponent(display)}` : HUD_URL);
   return win;
 }
 
 function createMainWindow() {
-  mainWindow = new BrowserWindow({ width: 1600, height: 980, minWidth: 1100, minHeight: 700, backgroundColor: '#171715', title: 'Jarvis 1.0', icon: path.join(ROOT, 'desktop', 'jarvis.ico'), autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  mainWindow = new BrowserWindow({ width: 1600, height: 980, minWidth: 1100, minHeight: 700, backgroundColor: '#171715', title: 'Raven 1.0', icon: path.join(ROOT, 'desktop', 'raven.ico'), autoHideMenuBar: true, titleBarStyle: 'hidden', titleBarOverlay: { color: '#191917', symbolColor: '#bdbdb7', height: 30 }, webPreferences: { preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
   mainWindow.webContents.on('render-process-gone', (_event, details) => writeLog(`renderer gone reason=${details.reason} code=${details.exitCode}`));
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => writeLog(`load failed code=${code} description=${description} url=${url}`));
   mainWindow.webContents.on('console-message', (_event, level, message, line, source) => { if (level >= 2) writeLog(`renderer console level=${level} ${message} at ${source}:${line}`); });
@@ -299,7 +299,7 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
-  session.fromPartition('persist:jarvis-web').on('will-download', (_event, item) => {
+  session.fromPartition('persist:raven-web').on('will-download', (_event, item) => {
     const safeName = path.basename(item.getFilename()).replace(/[^a-z0-9._-]/gi, '_');
     item.setSavePath(path.join(QUARANTINE, `${Date.now()}-${safeName}`));
   });

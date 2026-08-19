@@ -1,4 +1,4 @@
-"""Bezplatné agentní jádro Jarvisu s omezením dvou těžkých úloh."""
+"""Bezplatné agentní jádro Ravenu s omezením dvou těžkých úloh."""
 
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ class AgentRuntime:
             "completed": self.state.completed,
             "failed": self.state.failed,
             "components": components,
-            "coding_agent": {"name": "Jarvis Coding", "mode": "built-in", "installed": True},
+            "coding_agent": {"name": "Raven Coding", "mode": "built-in", "installed": True},
             "search": {"searxng": "external-local-service", "crawl4ai": "installed"},
         }
 

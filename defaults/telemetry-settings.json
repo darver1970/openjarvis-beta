@@ -36,7 +36,7 @@
     "diagnostic_export": false,
     "diagnostic_snapshots": false,
     "before_after_compare": false,
-    "jarvis_usage_separation": false,
+    "raven_usage_separation": false,
     "process_priority_affinity": false,
     "process_suspend_resume": false,
     "user_sessions": false,
