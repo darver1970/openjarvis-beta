@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Instaluje veřejnou beta verzi JARVISu do složky zvolené uživatelem.
+    Instaluje Jarvis 1.0 do jediné projektové složky.
 
 .DESCRIPTION
     Stahuje pouze bezplatné závislosti z oficiálních zdrojů, založí lokální
@@ -10,7 +10,6 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath,
-    [switch]$SkipVoice,
     [switch]$SkipModel
 )
 
@@ -29,33 +28,67 @@ function Assert-Command([string]$Name) {
     return $command.Source
 }
 
-function Copy-BetaFiles([string]$From, [string]$To) {
+function Copy-JarvisFiles([string]$From, [string]$To) {
     $fileNames = @(
         '.gitignore', 'LICENSE', 'NOTICE', 'README.md', 'VERSION', 'install.ps1', 'spustit-jarvis.ps1',
-        'hardware_monitor.py', 'telemetry_extensions.py', 'jarvis_control.py', 'jarvis_voice.py',
-        'gemini_live.py', 'network_monitor.py'
+        'hardware_monitor.py', 'telemetry_extensions.py', 'jarvis_control.py', 'network_monitor.py',
+        'agent_runtime.py', 'jarvis_intelligence.py'
     )
     foreach ($name in $fileNames) {
         Copy-Item -LiteralPath (Join-Path $From $name) -Destination (Join-Path $To $name) -Force
     }
-    foreach ($directory in @('defaults', 'hud', 'desktop')) {
+    foreach ($directory in @('defaults', 'hud', 'desktop', 'desktop-electron')) {
+        $sourceDirectory = Join-Path $From $directory
         $destination = Join-Path $To $directory
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
-        Get-ChildItem -LiteralPath (Join-Path $From $directory) -File | ForEach-Object {
-            if ($_.Extension -eq '.exe') { return }
-            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+        Get-ChildItem -LiteralPath $sourceDirectory -File -Recurse | ForEach-Object {
+            $relative = $_.FullName.Substring($sourceDirectory.Length).TrimStart('\')
+            if ($_.Extension -eq '.exe' -or $relative -match '(^|\\)node_modules(\\|$)') { return }
+            $target = Join-Path $destination $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Force
         }
     }
 }
 
+function Refresh-ProcessPath {
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:PATH = "$machine;$user"
+}
+
+function Ensure-Node {
+    $command = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $command) {
+        $winget = Get-Command winget -ErrorAction SilentlyContinue
+        if (-not $winget) { throw 'Chybí Node.js 22+ a winget není dostupný.' }
+        Write-Step 'Instaluji bezplatný Node.js LTS.'
+        & $winget.Source install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements --disable-interactivity
+        if ($LASTEXITCODE -ne 0) { throw 'Instalace Node.js LTS selhala.' }
+        Refresh-ProcessPath
+        $command = Get-Command node.exe -ErrorAction SilentlyContinue
+        if (-not $command -and (Test-Path -LiteralPath "$env:ProgramFiles\nodejs\node.exe")) {
+            $env:PATH = "$env:ProgramFiles\nodejs;$env:PATH"
+            $command = Get-Command node.exe -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not $command) { throw 'Node.js se po instalaci nepodařilo najít.' }
+    $version = [Version]((& $command.Source --version) -replace '^v', '')
+    if ($version.Major -lt 22) { throw "Jarvis vyžaduje Node.js 22+, nalezena verze $version." }
+    return $command
+}
+
 if (-not $InstallPath) {
-    $defaultDrive = Join-Path $env:LOCALAPPDATA 'OpenJarvis'
-    $InstallPath = Read-Host "Cílová složka instalace [výchozí: $defaultDrive]"
+    $defaultDrive = 'C:\projektjarvis'
+    Write-Host ''
+    Write-Host 'Zvolte jednu pracovní složku pro celý Jarvis, modely, runtime a data.' -ForegroundColor Yellow
+    $InstallPath = Read-Host "Cílová složka Jarvisu [výchozí: $defaultDrive]"
     if (-not $InstallPath) { $InstallPath = $defaultDrive }
 }
 
 $installRoot = [System.IO.Path]::GetFullPath($InstallPath)
 $sourceRoot = [System.IO.Path]::GetFullPath($sourceRoot)
+$installMarker = Join-Path $installRoot '.jarvis-installing'
 if ($installRoot.Length -lt 4 -or $installRoot -eq $installRoot.Substring(0, 3)) {
     throw 'Jako cíl nelze použít kořen disku. Zvolte samostatnou složku.'
 }
@@ -67,13 +100,17 @@ if ($drive.AvailableFreeSpace -lt 24GB) {
 }
 
 if ($installRoot -ne $sourceRoot) {
+    $resuming = Test-Path -LiteralPath $installMarker
     if (Test-Path -LiteralPath $installRoot) {
-        $existing = Get-ChildItem -LiteralPath $installRoot -Force | Select-Object -First 1
-        if ($existing) { throw "Cílová složka není prázdná: $installRoot" }
+        $existing = Get-ChildItem -LiteralPath $installRoot -Force | Where-Object Name -ne '.jarvis-installing' | Select-Object -First 1
+        if ($existing -and -not $resuming) { throw "Cílová složka není prázdná: $installRoot" }
     }
     New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    Write-Step "Kopíruji beta soubory do $installRoot"
-    Copy-BetaFiles -From $sourceRoot -To $installRoot
+    Set-Content -LiteralPath $installMarker -Value 'Jarvis 1.0 installation in progress' -Encoding utf8
+    Write-Step "Kopíruji soubory Jarvis 1.0 do $installRoot"
+    Copy-JarvisFiles -From $sourceRoot -To $installRoot
+} else {
+    Set-Content -LiteralPath $installMarker -Value 'Jarvis 1.0 installation in progress' -Encoding utf8
 }
 
 $runtime = Join-Path $installRoot 'runtime'
@@ -95,23 +132,48 @@ if (-not $git) {
     Write-Step 'Instaluji Git pro Windows.'
     & $winget.Source install --id Git.Git --silent --accept-source-agreements --accept-package-agreements
     if ($LASTEXITCODE -ne 0) { throw 'Instalace Gitu selhala.' }
+    Refresh-ProcessPath
     $git = Assert-Command 'git'
 }
 
-Write-Step 'Spouštím oficiální instalaci OpenJarvisu do zvolené složky.'
-$upstreamInstaller = Join-Path $runtime 'openjarvis-install.ps1'
-Invoke-WebRequest -Uri 'https://open-jarvis.github.io/OpenJarvis/install.ps1' -OutFile $upstreamInstaller -UseBasicParsing
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $upstreamInstaller -SkipService
-if ($LASTEXITCODE -ne 0) { throw "Instalace OpenJarvisu selhala s kódem $LASTEXITCODE." }
+if (-not (Test-Path -LiteralPath (Join-Path $installRoot 'src\.venv\Scripts\python.exe'))) {
+    Write-Step 'Spouštím oficiální instalaci OpenJarvisu do zvolené složky.'
+    $upstreamInstaller = Join-Path $runtime 'openjarvis-install.ps1'
+    Invoke-WebRequest -Uri 'https://open-jarvis.github.io/OpenJarvis/install.ps1' -OutFile $upstreamInstaller -UseBasicParsing
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $upstreamInstaller -SkipService
+    if ($LASTEXITCODE -ne 0) { throw "Instalace OpenJarvisu selhala s kódem $LASTEXITCODE." }
+} else {
+    Write-Step 'Používám existující lokální prostředí OpenJarvisu.'
+}
 
 $python = Join-Path $installRoot 'src\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { throw 'OpenJarvis nevytvořil očekávané Python prostředí.' }
+
+Write-Step 'Odstraňuji nepoužívané hlasové balíčky a modely.'
+& $python -m pip uninstall -y openwakeword piper-tts sounddevice soundfile 2>$null
+foreach ($voiceCache in @(
+    (Join-Path $runtime 'piper'),
+    (Join-Path $runtime 'voice'),
+    (Join-Path $runtime 'huggingface\hub\models--hexgrad--Kokoro-82M'),
+    (Join-Path $runtime 'huggingface\hub\models--Systran--faster-whisper-base'),
+    (Join-Path $runtime 'huggingface\hub\models--Systran--faster-whisper-small')
+)) {
+    if ($voiceCache.StartsWith($installRoot, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $voiceCache)) {
+        Remove-Item -LiteralPath $voiceCache -Recurse -Force
+    }
+}
 
 Write-Step 'Instaluji bezplatnou lokální telemetrii procesů.'
 & $python -m pip install --disable-pip-version-check psutil
 if ($LASTEXITCODE -ne 0) { throw 'Nelze nainstalovat telemetrii procesů psutil.' }
 
-Write-Step 'Vytvářím lokální konfiguraci beta HUDu.'
+Write-Step 'Instaluji bezplatné agentní jádro, webového agenta a lokální crawler.'
+& $python -m pip install --disable-pip-version-check 'pydantic-ai-slim==2.32.0' 'browser-use==0.13.8' 'crawl4ai==0.9.2' 'mcp==1.26.0' 'starlette==0.52.1' 'pytest==9.1.1'
+if ($LASTEXITCODE -ne 0) { throw 'Instalace agentních komponent selhala.' }
+& $python -m pip check
+if ($LASTEXITCODE -ne 0) { throw 'Python závislosti agentního jádra nejsou kompatibilní.' }
+
+Write-Step 'Vytvářím lokální konfiguraci Jarvis 1.0.'
 foreach ($template in Get-ChildItem -LiteralPath (Join-Path $installRoot 'defaults') -Filter '*.json') {
     $destination = Join-Path $runtime $template.Name
     if (-not (Test-Path -LiteralPath $destination)) {
@@ -121,65 +183,57 @@ foreach ($template in Get-ChildItem -LiteralPath (Join-Path $installRoot 'defaul
 $settingsPath = Join-Path $runtime 'jarvis-settings.json'
 $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
 $settings | Add-Member -NotePropertyName storage_root -NotePropertyValue $installRoot -Force
-$settings | Add-Member -NotePropertyName ai_provider -NotePropertyValue 'local' -Force
-$settings | Add-Member -NotePropertyName cloud_api -NotePropertyValue $false -Force
+$settings | Add-Member -NotePropertyName ai_provider -NotePropertyValue 'automatic' -Force
+$settings | Add-Member -NotePropertyName router_mode -NotePropertyValue 'automatic' -Force
+$settings | Add-Member -NotePropertyName permission_mode -NotePropertyValue 'full' -Force
+$settings | Add-Member -NotePropertyName cloud_api -NotePropertyValue $true -Force
 $settings | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $settingsPath -Encoding utf8
 
-if (-not $SkipVoice) {
-    Write-Step 'Instaluji bezplatné závislosti hlasového klienta.'
-    & $python -m pip install --disable-pip-version-check openwakeword sounddevice soundfile piper-tts websockets
-    if ($LASTEXITCODE -ne 0) { Write-Warning 'Hlasové závislosti se nepodařilo nainstalovat. HUD zůstává funkční.' }
-    $piperDirectory = Join-Path $runtime 'piper'
-    $piperModel = Join-Path $piperDirectory 'cs_CZ-jirka-medium.onnx'
-    $piperMetadata = "$piperModel.json"
-    New-Item -ItemType Directory -Path $piperDirectory -Force | Out-Null
-    if (-not (Test-Path -LiteralPath $piperModel)) {
-        Write-Step 'Stahuji český lokální hlas Piper Jirka.'
-        $piperBase = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx'
-        Invoke-WebRequest -Uri "$piperBase?download=true" -OutFile $piperModel -UseBasicParsing
-        Invoke-WebRequest -Uri "$piperBase.json?download=true" -OutFile $piperMetadata -UseBasicParsing
-    }
-}
-
-Write-Step 'Vytvářím vlastní nativní okno JARVIS HUD.'
+Write-Step 'Instaluji bezplatnou desktopovou vrstvu Electron, skutečný web a Monaco editor.'
+$node = Ensure-Node
+$npm = Assert-Command 'npm.cmd'
 $desktopPath = Join-Path $installRoot 'desktop'
-$hudSource = Join-Path $desktopPath 'jarvis_hud.py'
-$hudIcon = Join-Path $desktopPath 'jarvis.ico'
-if (-not (Test-Path -LiteralPath $hudSource) -or -not (Test-Path -LiteralPath $hudIcon)) {
-    throw 'Zdroj nebo ikona vlastního JARVIS HUDu chybí.'
+$electronProject = Join-Path $installRoot 'desktop-electron'
+if (-not (Test-Path -LiteralPath (Join-Path $electronProject 'package.json'))) {
+    throw 'Zdroj desktopové vrstvy Jarvise chybí.'
 }
-& $python -m pip install --disable-pip-version-check pywebview pyinstaller
-if ($LASTEXITCODE -ne 0) { throw 'Nelze nainstalovat závislosti vlastního JARVIS HUDu.' }
-& $python -m PyInstaller --noconfirm --clean --onefile --noconsole --name 'Jarvis-HUD' --icon $hudIcon --distpath $desktopPath --workpath (Join-Path $runtime 'pyinstaller-build') --specpath (Join-Path $runtime 'pyinstaller-spec') $hudSource
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $desktopPath 'Jarvis-HUD.exe'))) {
-    throw 'Vytvoření vlastního JARVIS HUDu selhalo.'
-}
+& $npm install --prefix $electronProject --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) { throw 'Instalace bezplatných desktopových závislostí selhala.' }
+& $npm run --prefix $electronProject pack:portable
+if ($LASTEXITCODE -ne 0) { throw 'Vytvoření desktopového EXE selhalo.' }
+$builtDesktop = Join-Path $installRoot 'desktop-dist\Jarvis-Desktop.exe'
+if (-not (Test-Path -LiteralPath $builtDesktop)) { throw 'Sestavený Jarvis-Desktop.exe nebyl nalezen.' }
+Copy-Item -LiteralPath $builtDesktop -Destination (Join-Path $desktopPath 'Jarvis-Desktop.exe') -Force
 
 if (-not $SkipModel) {
-    $ollama = Get-Command ollama -ErrorAction SilentlyContinue
-    if ($ollama) {
+    $ollamaPath = Join-Path $runtime 'ollama\ollama.exe'
+    if (-not (Test-Path -LiteralPath $ollamaPath)) {
+        $ollama = Get-Command ollama.exe -ErrorAction SilentlyContinue
+        if ($ollama) { $ollamaPath = $ollama.Source }
+    }
+    if (-not (Test-Path -LiteralPath $ollamaPath)) {
+        $winget = Get-Command winget -ErrorAction SilentlyContinue
+        if ($winget) {
+            Write-Step 'Instaluji bezplatnou Ollamu.'
+            & $winget.Source install --id Ollama.Ollama --silent --accept-source-agreements --accept-package-agreements --disable-interactivity
+            Refresh-ProcessPath
+            $ollama = Get-Command ollama.exe -ErrorAction SilentlyContinue
+            if ($ollama) { $ollamaPath = $ollama.Source }
+        }
+    }
+    if (Test-Path -LiteralPath $ollamaPath) {
         foreach ($model in @('qwen3.5:4b', 'qwen2.5-coder:7b')) {
             Write-Step "Stahuji lokální bezplatný model $model."
-            & $ollama.Source pull $model
+            & $ollamaPath pull $model
             if ($LASTEXITCODE -ne 0) { Write-Warning "Model $model se nestáhl. Později spusťte: ollama pull $model" }
         }
     } else {
-        Write-Warning 'Ollama nebyla po instalaci nalezena. Spusťte instalátor znovu v novém PowerShellu.'
+        Write-Warning 'Ollama nebyla po instalaci nalezena. Online bezplatný režim zůstává dostupný.'
     }
 }
 
 Write-Step 'Připravuji lokálního agenta OpenClaw bez Gateway a bez oprávnění k příkazům.'
-$node = Get-Command node.exe -ErrorAction SilentlyContinue
-if (-not $node) {
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if (-not $winget) { throw 'Pro OpenClaw chybí Node.js 22+ i winget. Nainstalujte Node.js LTS a spusťte instalátor znovu.' }
-    & $winget.Source install --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -ne 0) { throw 'Instalace Node.js LTS selhala.' }
-    $node = Get-Command node.exe -ErrorAction SilentlyContinue
-    if (-not $node) { throw 'Node.js je nainstalovaný, ale tento PowerShell ho ještě nevidí. Otevřete nový PowerShell a spusťte instalátor znovu.' }
-}
-$nodeVersion = [Version]((& $node.Source --version) -replace '^v', '')
-if ($nodeVersion.Major -lt 22) { throw "OpenClaw vyžaduje Node.js 22+, nalezena verze $nodeVersion." }
+$node = Ensure-Node
 $npm = Assert-Command 'npm.cmd'
 $openClawRoot = Join-Path $runtime 'openclaw'
 $env:npm_config_cache = Join-Path $openClawRoot 'npm-cache'
@@ -262,14 +316,18 @@ try {
     Write-Warning 'Microsoft Handle se nepodařilo ověřit; registry handly zůstanou nedostupné.'
 }
 
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'JARVIS Beta.lnk'
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Jarvis 1.0.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$installRoot\spustit-jarvis.ps1`""
+$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installRoot\spustit-jarvis.ps1`""
 $shortcut.WorkingDirectory = $installRoot
-$shortcut.Description = 'Spustit lokální JARVIS Beta HUD'
-$shortcut.IconLocation = "$(Join-Path $desktopPath 'Jarvis-HUD.exe'),0"
+$shortcut.Description = 'Spustit lokální Jarvis 1.0'
+$shortcut.IconLocation = "$(Join-Path $desktopPath 'Jarvis-Desktop.exe'),0"
 $shortcut.Save()
 
-Write-Step 'Instalace dokončena. Spusťte zástupce JARVIS Beta na ploše.'
+$installConfigDirectory = Join-Path $env:LOCALAPPDATA 'Jarvis'
+New-Item -ItemType Directory -Path $installConfigDirectory -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $installConfigDirectory 'install-path.txt') -Value $installRoot -Encoding utf8
+Remove-Item -LiteralPath $installMarker -Force -ErrorAction SilentlyContinue
+Write-Step 'Instalace dokončena. Spusťte zástupce Jarvis 1.0 na ploše.'

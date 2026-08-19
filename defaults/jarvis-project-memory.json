@@ -5,14 +5,14 @@
     {
       "type": "user_preference",
       "title": "Lokální provoz",
-      "summary": "Výchozí provoz je lokální. Internet se používá pouze na výslovný požadavek uživatele.",
+      "summary": "Automatický režim používá nejprve nakonfigurované bezplatné online modely a lokální Ollamu až jako poslední zálohu.",
       "source": "user",
       "created_at": "2026-08-16T15:30:00"
     },
     {
       "type": "decision",
       "title": "Bezpečné změny",
-      "summary": "Instalace, placené služby, mazání a systémové změny vyžadují osobní potvrzení uživatele.",
+      "summary": "Oprávnění mají tři režimy: Plný přístup, Na potvrzení a Zakázáno. Placené služby zůstávají vždy zakázané.",
       "source": "user",
       "created_at": "2026-08-16T15:30:00"
     },
@@ -25,8 +25,8 @@
     },
     {
       "type": "decision",
-      "title": "Vlastní izolovaný HUD",
-      "summary": "JARVIS se spouští ve vlastním Jarvis-HUD.exe bez samostatného Brave nebo Edge okna a bez rozšíření prohlížeče.",
+      "title": "Vlastní desktopové okno",
+      "summary": "JARVIS se spouští jako Jarvis-Desktop.exe s vlastním názvem a ikonou, vestavěnými webovými kartami a bez rozšíření prohlížeče.",
       "source": "user",
       "created_at": "2026-08-16T15:30:00"
     }

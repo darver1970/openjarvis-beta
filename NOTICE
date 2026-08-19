@@ -1,25 +1,39 @@
-OpenJarvis Beta HUD v0.6
-Copyright 2026 contributors to OpenJarvis Beta HUD.
+Jarvis 1.0
+Copyright 2026 contributors to Jarvis.
 
 This product includes or integrates with OpenJarvis:
 Copyright 2025 The OpenJarvis Authors.
 Licensed under the Apache License, Version 2.0.
 Source: https://github.com/open-jarvis/OpenJarvis
 
-The installer retrieves optional independent components from their publishers:
+Integrated or optional independent components:
 - Ollama, MIT License: https://github.com/ollama/ollama
 - OpenClaw, MIT License: https://github.com/openclaw/openclaw
-- openWakeWord, Apache License 2.0: https://github.com/dscripka/openWakeWord
-- faster-whisper, MIT License: https://github.com/SYSTRAN/faster-whisper
-- Piper, GPL-3.0-or-later: https://github.com/rhasspy/piper
-- python-sounddevice, MIT License: https://github.com/spatialaudio/python-sounddevice
-- SoundFile, BSD 3-Clause License: https://github.com/bastibe/python-soundfile
 - websockets, BSD 3-Clause License: https://github.com/python-websockets/websockets
-- pywebview, BSD 3-Clause License: https://github.com/r0x0r/pywebview
-- PyInstaller, GPLv2-or-later with its distribution exception: https://pyinstaller.org/
+- Electron, MIT License: https://github.com/electron/electron
+- Monaco Editor, MIT License: https://github.com/microsoft/monaco-editor
+- Pydantic AI, MIT License: https://github.com/pydantic/pydantic-ai
+- Browser Use, MIT License: https://github.com/browser-use/browser-use
+- Crawl4AI, Apache-2.0 License: https://github.com/unclecode/crawl4ai
+- Model Context Protocol SDK, MIT License: https://github.com/modelcontextprotocol/python-sdk
+- Playwright, Apache-2.0 License: https://github.com/microsoft/playwright
 - LibreHardwareMonitor, MPL-2.0: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
-- psutil, BSD-3-Clause: https://github.com/giampaolo/psutil
-- eadmin2/jarvis_ai, MIT License; visual HUD inspiration: https://github.com/eadmin2/jarvis_ai
+- psutil, BSD 3-Clause License: https://github.com/giampaolo/psutil
 
-Gemini API and OpenRouter are optional remote services. Their terms, quotas,
+Architecture and UX references (no source code from these projects is
+distributed as part of Jarvis 1.0):
+- Open WebUI, current custom Open WebUI License with branding conditions;
+  older revisions have separate MIT/BSD-3-Clause terms:
+  https://github.com/open-webui/open-webui
+- OpenCode, MIT License: https://github.com/anomalyco/opencode
+- Vane, MIT License: https://github.com/ItzCrazyKns/Vane
+- Meetily, MIT License: https://github.com/Zackriya-Solutions/meetily
+- agenticSeek, GPL-3.0 License: https://github.com/Fosowl/agenticSeek
+
+These projects were reviewed as architectural and user-experience references.
+Jarvis does not claim their names, logos, endorsement, or authorship. Their
+licenses continue to govern their own code and distributions.
+
+Gemini API, OpenRouter, Groq, Cerebras, Mistral, GitHub Models and Cloudflare
+Workers AI are optional remote services. Their terms, quotas,
 and processing conditions are governed by their respective providers.

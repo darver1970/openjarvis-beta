@@ -1,0 +1,44 @@
+{
+  "name": "jarvis-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bezplatne lokalni desktopove rozhrani Jarvis 1.0",
+  "author": "Jarvis contributors",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "npm run pack:portable && npm run pack:installer",
+    "pack:portable": "electron-builder --win portable -c.artifactName=Jarvis-Desktop.exe",
+    "pack:installer": "electron-builder --win nsis -c.artifactName=Jarvis-1.0-Setup.exe"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "cz.jarvis.desktop",
+    "productName": "Jarvis 1.0",
+    "asar": true,
+    "directories": { "output": "../desktop-dist" },
+    "files": ["main.js", "preload.js", "package.json", "node_modules/monaco-editor/**/*"],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "jarvis-project",
+        "filter": [
+          ".gitignore", "LICENSE", "NOTICE", "README.md", "VERSION",
+          "*.py", "*.ps1", "defaults/**/*", "hud/**/*", "desktop/jarvis.ico",
+          "desktop-electron/main.js", "desktop-electron/preload.js",
+          "desktop-electron/package.json", "desktop-electron/package-lock.json",
+          "!hud/hardware-status.json", "!hud/network-status.json", "!hud/voice-event.json",
+          "!**/__pycache__/**", "!**/*.pyc"
+        ]
+      }
+    ],
+    "win": { "target": ["nsis", "portable"], "icon": "../desktop/jarvis.ico", "executableName": "Jarvis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Jarvis 1.0" }
+  }
+}

@@ -1,7 +1,7 @@
 "use strict";
 
-const CACHE_NAME = "jarvis-hud-v70";
-const ASSETS = ["/", "/index.html", "/hud.css", "/boot.css", "/views.css", "/film-hud.css", "/hud.js", "/manifest.json"];
+const CACHE_NAME = "jarvis-v1.0-cache-10";
+const ASSETS = ["/", "/index.html", "/app.css", "/process-groups.css", "/composer-access.css", "/workbench.css", "/hud.js", "/workbench.js", "/manifest.json"];
 
 self.addEventListener("install", event => {
   self.skipWaiting();

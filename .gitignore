@@ -1,6 +1,9 @@
 # Lokální běh, modely, cache a soukromá data se nikdy nezveřejňují.
 runtime/
 desktop/
+desktop-dist/
+desktop-electron/node_modules/
+node_modules/
 *.db
 *.db-*
 *.log
@@ -21,3 +24,4 @@ hud/network-status.json
 hud/voice-event.json
 version-check.json
 backup-original-files/
+.pytest_cache/

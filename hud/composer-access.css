@@ -1,0 +1,132 @@
+.composer {
+  width: min(940px, calc(100% - 36px));
+  border-radius: 17px;
+}
+
+.composer textarea {
+  min-height: 72px;
+  padding: 18px 18px 8px;
+  color: #f0f0ed;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.composer textarea::placeholder {
+  color: #999994;
+  opacity: 1;
+}
+
+.composer footer {
+  padding: 8px 10px 11px;
+}
+
+.composer-controls,
+.send-controls {
+  gap: 8px;
+}
+
+.composer select {
+  min-height: 34px;
+  max-width: 215px;
+  padding: 7px 12px;
+  border-width: 1px;
+  border-radius: 18px;
+  color: #eeeeea;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#composer-access {
+  min-width: 142px;
+  width: 142px;
+}
+
+#composer-provider {
+  width: 176px;
+}
+
+#router-mode {
+  width: 132px;
+}
+
+#composer-access:has(option[value="full"]:checked) {
+  border-color: #39795c;
+  background: #173a2b;
+  color: #81e6ad;
+  box-shadow: inset 0 0 0 1px #22543c;
+}
+
+#composer-access:has(option[value="confirm"]:checked) {
+  border-color: #a66a27;
+  background: #432d14;
+  color: #ffc46b;
+  box-shadow: inset 0 0 0 1px #704719;
+}
+
+#composer-access:has(option[value="denied"]:checked) {
+  border-color: #9a4147;
+  background: #461f22;
+  color: #ff9b9f;
+  box-shadow: inset 0 0 0 1px #6d2e33;
+}
+
+#composer-access option[value="full"] {
+  background: #173a2b;
+  color: #9af0bb;
+}
+
+#composer-access option[value="confirm"] {
+  background: #432d14;
+  color: #ffd083;
+}
+
+#composer-access option[value="denied"] {
+  background: #461f22;
+  color: #ffafb2;
+}
+
+.attach-button {
+  width: 34px;
+  height: 34px;
+  font-size: 20px;
+}
+
+.send-controls span {
+  display: none;
+}
+
+#stop-request,
+#send-message {
+  width: 36px;
+  height: 36px;
+}
+
+#send-message {
+  font-size: 20px;
+}
+
+.composer-hint {
+  bottom: 6px;
+  color: #777773;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .composer select {
+    max-width: 170px;
+    font-size: 11px;
+  }
+
+  #composer-access {
+    min-width: 130px;
+    width: 130px;
+  }
+
+  #composer-provider {
+    width: 160px;
+  }
+
+  #router-mode {
+    width: 124px;
+  }
+}

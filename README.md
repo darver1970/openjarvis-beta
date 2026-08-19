@@ -1,158 +1,92 @@
-# OpenJarvis Beta HUD v0.7
+# Jarvis 1.0
 
-Lokální Windows rozhraní JARVIS postavené nad projektem OpenJarvis. Běží z
-libovolné složky zvolené při instalaci a nevyžaduje placený API klíč pro
-základní lokální provoz.
+Jarvis 1.0 je lokální desktopový AI pracovní prostor pro 64bitové Windows 10 a Windows 11. Má tmavé textové rozhraní, lokální historii chatů a projektů, přehled agentů, úkolů, telemetrie a procesů. Hlasové funkce byly z verze 1.0 zcela odstraněny.
 
-## Co obsahuje
+## Nejjednodušší instalace
 
-- vlastní nativní okno `Jarvis-HUD.exe` s izolovaným WebView profilem,
-- lokální modely Ollama `qwen3.5:4b` a `qwen2.5-coder:7b`,
-- český a anglický hlasový vstup, wake-word, STOP a lokální Piper hlas,
-- volitelný Gemini Live hlas: Gemini je první volba, lokální hlas je záloha,
-- lokální režimy AI: Ollama, Gemini Free, OpenRouter Free a Automaticky,
-- automatický router: Gemini Free -> OpenRouter Free -> lokální Ollama,
-- levý panel agentů a izolovaný lokální OpenClaw s politikou `deny-all`,
-- pravou pracovní plochu pro soubory, Git stav a vlastní JARVIS WEB,
-- telemetrii CPU, RAM, GPU, disků, procesů a síťové aktivity.
-- samostatné nastavení telemetrie se 47 přepínači v šesti kategoriích;
-  všech 47 funkcí má lokální sběrač nebo bezpečnou lokální akci. Devět
-  základních sběračů je zapnutých, náročná rozšíření zůstávají ve výchozím
-  stavu vypnutá a aktivují se jednotlivě v nastavení.
+1. Na stránce **Releases** stáhněte pouze `Jarvis-1.0-Setup.exe` z nejnovějšího vydání 1.0.
+2. Spusťte instalátor. Při prvním spuštění se Jarvis zeptá na jedinou pracovní složku; výchozí je `C:\projektjarvis`. Do zvolené složky uloží zdroje, modely, runtime i data a připraví pouze bezplatné závislosti.
+3. Dokončení první instalace může trvat déle kvůli stažení lokálního modelu. Potom spusťte zástupce **Jarvis 1.0** na ploše.
 
-## Bezpečnost a soukromí
-
-Základní režim je lokální. Modely, konfigurace, logy, historie, cache,
-OpenClaw workspace a tajemství jsou uloženy pouze v instalační složce pod
-`runtime` a nejsou součástí Git repozitáře.
-
-Každá nová instalace začíná v režimu **Lokální Ollama** bez API klíčů. Každý
-uživatel zadává vlastní klíč až ve svém HUDu; jeho klíč se šifruje pouze pro
-jeho účet Windows. Po úspěšném ověření Gemini klíče se zpřístupní Gemini Live
-hlas. Bez klíče zůstává hlas i text plně lokální.
-
-Gemini a OpenRouter jsou volitelné. Klíče se ukládají šifrovaně pomocí Windows
-DPAPI pro aktuální účet a nikdy se nezobrazují v HUDu ani v logu. Při použití
-Gemini Live odchází hlasový dotaz do služby Google. OpenClaw nemá spuštěnou
-Gateway, síťové účty ani oprávnění provádět příkazy.
-
-## Čistá instalace
-
-### Nejjednodušší postup
-
-1. Na GitHubu klikněte na **Code -> Download ZIP** a archiv rozbalte.
-2. Otevřete rozbalenou složku a najděte soubor `install.ps1`.
-3. Klikněte na něj pravým tlačítkem a zvolte **Spustit v PowerShellu**.
-4. Do zobrazeného okna pouze napište cílovou instalační složku a stiskněte
-   `Enter`. Pro výchozí umístění stačí stisknout samotný `Enter`.
-5. V bezpečnostním dotazu PowerShellu potvrďte spuštění klávesou `R` nebo
-   volbou **Ano**. Není nutné ručně psát žádný příkaz.
-6. Vyčkejte na dokončení instalace a stažení bezplatných závislostí a modelů.
-7. Na ploše spusťte nový zástupce **JARVIS Beta**.
-
-Výchozí cesta je `%LOCALAPPDATA%\OpenJarvis`; můžete zvolit například
-`D:\Aplikace\OpenJarvis`. Instalátor nikdy nevynucuje konkrétní disk.
-
-Pokud nabídka **Spustit v PowerShellu** není vidět, podržte `Shift`, klikněte
-pravým tlačítkem na `install.ps1` a otevřete ji přes **Zobrazit další možnosti**.
-Příkazový postup níže použijte jen jako náhradní řešení.
+Instalace nikdy neaktivuje placené předplatné. Windows může při prvním spuštění zobrazit ochranu SmartScreen, protože komunitní sestavení není podepsané placeným certifikátem.
 
 ### Požadavky
 
-- Windows 10 1809 nebo novější, 64bit,
-- internet během instalace,
-- nejméně 24 GB volného místa na zvoleném disku,
-- mikrofon pro hlasový modul,
-- Git a Node.js LTS; instalátor je v případě dostupného `winget` doplní.
+- 64bitové Windows 10 nebo Windows 11;
+- alespoň 24 GB volného místa;
+- internet při první instalaci;
+- Windows Package Manager (`winget`), který je běžnou součástí aktuálních Windows;
+- pro lokální AI je doporučeno nejméně 16 GB RAM, základní cloudový režim může fungovat i na slabším PC.
 
-### Příkazový postup
+### Ruční instalace ze zdrojů
 
-```powershell
-git clone https://github.com/darver1970/openjarvis-beta.git
-cd openjarvis-beta
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-Volitelné parametry:
+Pokud nechcete použít EXE, stáhněte ZIP zdrojového kódu z GitHubu, rozbalte jej a v dané složce spusťte:
 
 ```powershell
-# Bez lokálních modelů; později spusťte ollama pull qwen3.5:4b
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -SkipModel
-
-# Bez hlasových závislostí
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -SkipVoice
-
-# Bez dotazu na cílovou cestu
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath 'D:\Aplikace\OpenJarvis'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallPath C:\projektjarvis
 ```
 
-## První spuštění
+Instalátor podle potřeby doplní Git, Node.js LTS, Ollamu, Python prostředí, agentní knihovny a desktopovou vrstvu. Hotovou aplikaci lze otevřít zástupcem `Jarvis 1.0` nebo souborem `C:\projektjarvis\desktop\Jarvis-Desktop.exe`.
 
-JARVIS startuje v lokálním režimu. V nastavení lze vybrat:
+### Aktualizace
 
-- **Lokální Ollama** pro plně offline textové odpovědi,
-- **Gemini Free** po jednorázovém uložení a ověření vlastního klíče,
-- **OpenRouter Free** po jednorázovém uložení a ověření vlastního klíče,
-- **Automaticky**, který preferuje Gemini, poté OpenRouter a nakonec lokální
-  Ollama bez použití placených modelů.
+Před instalací nové verze zazálohujte vlastní důležitá data. Nové vydání stáhněte pouze z oficiálního GitHub repozitáře. API klíče a lokální historie jsou v `runtime/`, který se do GitHubu nikdy nenahrává.
 
-Pokud je uložen funkční Gemini klíč, hlasový modul nejdříve použije Gemini
-Live. Při chybě, nedostupnosti nebo vyčerpání kvóty přejde na lokální hlas a
-Gemini zkusí znovu po pěti minutách.
+## Modely a automatické přepínání
 
-## Řešení problémů
+Automatický režim používá pevné pořadí:
 
-- **HUD se neotevře:** spusťte `spustit-jarvis.ps1` přímo z instalační složky.
-- **Mikrofon nefunguje:** povolte mikrofon pro desktopové aplikace v Nastavení
-  Windows a ověřte vstup v nastavení JARVISu.
-- **Gemini Live selže:** JARVIS přepne na lokální hlas. Ověřte internet a
-  kvótu v Google AI Studio.
-- **Model chybí:** v instalační složce spusťte `ollama pull qwen3.5:4b` nebo
-  `ollama pull qwen2.5-coder:7b`.
-- **OpenClaw není připraven:** ověřte Node.js 22+ a dostupnost Ollama.
+1. Gemini Free
+2. OpenRouter Free
+3. další nakonfigurované free-only zálohy: Groq, Cerebras, Mistral, GitHub Models a volitelně Cloudflare Workers AI
+4. lokální Ollama
 
-## Kredit a licence
+Na další zdroj se přepne při vyčerpání bezplatné kvóty nebo při nedostupnosti služby. API klíče se ukládají šifrovaně přes Windows DPAPI a nejsou součástí repozitáře ani historie chatu. Ručně lze zvolit režim Automaticky, Lokálně, Rychlost, Kvalita, Výzkum nebo Kód.
 
-Projekt je vydán pod [Apache License 2.0](LICENSE). Zachovává kredit původním
-autorům [OpenJarvis](https://github.com/open-jarvis/OpenJarvis): Jon
-Saad-Falcon, Avanika Narayan, Robby Manihani, Tanvir Bhathal, Herumb
-Shandilya, Hakki Orhun Akengin, Gabriel Bo, Andrew Park, Matthew Hart, Caia
-Costello, Chuan Li, Christopher Re a Azalia Mirhoseini.
+## Hlavní části
 
-Použité samostatné projekty a služby:
+- Chat: víceřádkový editor, Enter pro odeslání a Shift+Enter pro nový řádek, lokální historie, kopírování odpovědí a bloků kódu.
+- Projekty: oddělené pracovní kontexty s cestou, Git repozitářem, technologiemi, poznámkami a testovacím příkazem.
+- Agenti: větve Core, Planning, Research, Browser, Coding, Testing, Files, Memory, Security a System; přidávání vlastních agentů, závislosti, průběh, živé stavy a samostatné okno.
+- Systém: stabilní telemetrie bez problikávání, živé grafy CPU/RAM/GPU/disku/sítě, teploty, příkon, ventilátory, upozornění, nejzatíženější procesy a samostatný bar zaplnění každého disku. Procesy jsou seskupené jako ve Správci úloh a lze je filtrovat a řadit podle komponent.
+- Úkoly: lokální historie požadavků, použitého poskytovatele a výsledku.
+- Paměť: Memory Manager a lokální Project Indexer se SQLite FTS5, projektové poznatky a cílené mazání.
+- Pracovní panel: skutečné webové karty Electron WebContentsView, trvalé přihlášení, procházení celého počítače (disky, zpět, vpřed a nahoru), soubory v Monaco editoru, výstupy, Git změny, logy, paměť a artefakty. Šířka se mění myší a ukládá.
+- Nabídky: funkční rozbalovací lišty Soubor, Upravit a Zobrazení se zkratkami pro chaty, složky, editaci, panely, prohlížeč, terminál, navigaci, zoom a celou obrazovku.
+- Živé kroky: Přijato, Analýza, Plán, Kontext, Provedení, Úpravy, Test, Kontrola a Hotovo/Chyba přes lokální SSE.
+- Plánování a pluginy: lokální seznam naplánovaných úkolů a katalog bezplatných modulů.
+- Oprávnění: Plný přístup, Potvrzení a Zakázáno; pravidla se vynucují v rozhraní i lokálním backendu.
+- Skutečné lokální nástroje: chat umí přes agenty Planner, Files, Tester a Reviewer vytvořit, přečíst a upravit textový soubor, vytvořit složku a obnovitelně odstranit soubor. Výsledek se po provedení zpětně ověřuje.
+- Simulace: samostatný přepínač ukáže výsledek lokální akce bez změny počítače. Nevratné a systémové operace vyžadují potvrzení také při Plném přístupu.
+- Znalostní knihovna: uživatel v Nastavení vybere jednu nebo více složek či disků, limit velikosti a použití s online AI. Lokální SQLite FTS5 index automaticky dodává relevantní a odtajněný kontext.
+- Diagnostika: rychlá kontrola po spuštění a ručně spustitelná úplná kontrola lokálních služeb, modelového serveru, projektu a znalostního indexu.
+- Vratné body: lokální snímky projektu s automatickým zachováním nejvýše deseti posledních bodů.
 
-- [Ollama](https://github.com/ollama/ollama) (MIT) pro lokální modely,
-- [OpenClaw](https://github.com/openclaw/openclaw) (MIT) pro lokálního agenta,
-- [openWakeWord](https://github.com/dscripka/openWakeWord) (Apache-2.0) pro
-  wake-word,
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT) pro
-  lokální přepis řeči,
-- [Piper](https://github.com/rhasspy/piper) (GPL-3.0-or-later) pro lokální
-  syntézu řeči,
-- [python-sounddevice](https://github.com/spatialaudio/python-sounddevice)
-  (MIT), [SoundFile](https://github.com/bastibe/python-soundfile) (BSD-3),
-  [websockets](https://github.com/python-websockets/websockets) (BSD-3),
-- [pywebview](https://github.com/r0x0r/pywebview) (BSD-3) a
-  [PyInstaller](https://pyinstaller.org/) pro nativní HUD,
-- [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
-  (MPL-2.0) pro volitelnou telemetrii,
-- [psutil](https://github.com/giampaolo/psutil) (BSD-3-Clause) pro lokální
-  přehled procesů a systémového vytížení,
-- [Intel PresentMon](https://github.com/GameTechDev/PresentMon) (MIT) pro
-  volitelné lokální měření FPS a frametime přes Windows ETW,
-- [Microsoft Sysinternals Handle](https://learn.microsoft.com/sysinternals/downloads/handle)
-  (bezplatný nástroj Microsoft Sysinternals) pro volitelný přehled otevřených
-  souborů a registry handlů při spuštění jako správce,
-- [eadmin2/jarvis_ai](https://github.com/eadmin2/jarvis_ai) (MIT) jako
-  vizuální inspirace filmového HUDu,
-- [Gemini API](https://ai.google.dev/gemini-api) a
-  [OpenRouter](https://openrouter.ai/) jako volitelné online služby.
+## Soukromí a cena
 
-Licence jednotlivých modelů Qwen se řídí podmínkami jejich vydavatele v
-Ollama registru. Tento repozitář neobsahuje modelové váhy ani API klíče.
+Jarvis neaktivuje žádné placené předplatné. Grok a xAI jsou trvale zakázané a OpenRouter používá pouze výslovně schválený model s příponou `:free`. Online poskytovatelé jsou volitelní a používají uživatelem vložené klíče; jejich bezplatné limity a podmínky určuje poskytovatel. Lokální režim běží bez placeného API. Telemetrie aplikace zůstává lokálně v `C:\projektjarvis\runtime`.
 
-## Stav vydání
+## Architektura a inspirace
 
-`v0.7` je beta vydání. Před publikací každé změny se provádí lokální kontrola
-syntaxí, služeb, hlasových adaptérů, bezpečnostních omezení a instalačního
-skriptu. Nahrání na GitHub probíhá pouze po výslovném příkazu `nahraj na github`.
+Rozhraní a návrh pracovních postupů vycházejí z veřejně dostupných principů projektů Open WebUI, OpenCode, Vane, agenticSeek a Meetily. Jejich zdrojové kódy nejsou bez rozmyslu sloučeny do Jarvisu; komponenty s nekompatibilní copyleft licencí se připojují pouze přes oddělené rozhraní. Převzaté komponenty a jejich licence jsou uvedeny v `NOTICE`.
+
+## Vývoj
+
+- Backend: `jarvis_control.py`
+- Desktopové okno: `desktop-electron/main.js`, bezpečný most `desktop-electron/preload.js`
+- Rozhraní: `hud/index.html`, `hud/app.css`, `hud/workbench.css`, `hud/hud.js`, `hud/workbench.js`
+- Agentní runtime: `agent_runtime.py` a `jarvis_intelligence.py` (Pydantic AI Slim, Browser Use, Crawl4AI, MCP; nejvýše dva těžcí agenti)
+- Výchozí konfigurace: `defaults/`
+- Lokální běhová data: `runtime/`
+
+Před vydáním se kontroluje syntaxe Pythonu a JavaScriptu, lokální API, načtení rozhraní, psaní do editoru, historie, telemetrie, skutečný souborový nástroj přes chat a vytvoření instalačního EXE. GitHub se aktualizuje pouze na výslovný pokyn uživatele.
+
+Výsledné soubory jsou `desktop/Jarvis-Desktop.exe` pro běžné spuštění a `desktop-dist/Jarvis-1.0-Setup.exe` jako instalační balíček. Instalační EXE obsahuje zdrojovou část Jarvisu 1.0 a na čistém podporovaném počítači spustí přípravu bezplatných závislostí.
+
+## Kredity
+
+Jarvis 1.0 integruje OpenJarvis a samostatné open-source knihovny vyjmenované v souboru [`NOTICE`](NOTICE). Rozhraní a pracovní postupy byly navrženy také s přihlédnutím k veřejným principům projektů Open WebUI, OpenCode, Vane, Meetily a agenticSeek. Jejich zdrojový kód není součástí Jarvisu 1.0 a projekt si nenárokuje jejich značky ani podporu.
+
+## Licence
+
+Jarvis 1.0 je vydán pod Apache License 2.0. Podrobné kredity a licence integrovaných nebo volitelných komponent jsou v souboru `NOTICE`.

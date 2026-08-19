@@ -15,6 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import psutil
 
@@ -31,6 +32,9 @@ POLL_SECONDS = 2
 PROCESS_CPU_SAMPLES: dict[int, tuple[float, float]] = {}
 PROCESS_IO_SAMPLES: dict[int, tuple[int, int, float]] = {}
 GPU_CACHE: tuple[float, dict[int, float]] = (0.0, {})
+GPU_FAILURES = 0
+GPU_RETRY_AT = 0.0
+SENSOR_CACHE: tuple[float, list[dict[str, Any]]] = (0.0, [])
 SYSTEM_IO_SAMPLE: tuple[float, int, int] | None = None
 
 logging.basicConfig(
@@ -43,9 +47,17 @@ logging.basicConfig(
 
 def write_status(payload: dict[str, Any]) -> None:
     """Zapíše stav atomicky, aby HUD nikdy nečetl neúplný JSON."""
-    temporary = HUD_STATUS.with_suffix(".tmp")
+    temporary = HUD_STATUS.with_name(f"{HUD_STATUS.name}.{uuid4().hex}.tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    os.replace(temporary, HUD_STATUS)
+    for attempt in range(4):
+        try:
+            os.replace(temporary, HUD_STATUS)
+            return
+        except PermissionError:
+            if attempt == 3:
+                temporary.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def load_telemetry_settings() -> dict[str, Any]:
@@ -111,13 +123,20 @@ def walk(node: dict[str, Any], hardware: str = "") -> list[dict[str, Any]]:
 
 def fetch_sensors() -> list[dict[str, Any]]:
     """Načte senzory pouze z lokálního LHM serveru."""
+    global SENSOR_CACHE
     request = urllib.request.Request(SENSOR_URL, headers={"User-Agent": "JarvisLocalHUD/1"})
-    with urllib.request.urlopen(request, timeout=2) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        if SENSOR_CACHE[1] and time.monotonic() - SENSOR_CACHE[0] < 30:
+            return SENSOR_CACHE[1]
+        raise
     sensors: list[dict[str, Any]] = []
     for root in data.get("Children") or []:
         if isinstance(root, dict):
             sensors.extend(walk(root))
+    SENSOR_CACHE = (time.monotonic(), sensors)
     return sensors
 
 
@@ -148,9 +167,11 @@ def native_disks() -> list[dict[str, Any]]:
 
 def gpu_usage_by_pid() -> dict[int, float]:
     """Sečte aktivitu GPU enginů Windows podle PID a krátce ji cachuje."""
-    global GPU_CACHE
+    global GPU_CACHE, GPU_FAILURES, GPU_RETRY_AT
     now = time.monotonic()
     if now - GPU_CACHE[0] < 4:
+        return GPU_CACHE[1]
+    if now < GPU_RETRY_AT:
         return GPU_CACHE[1]
     script = (
         "$ErrorActionPreference='Stop'; "
@@ -176,8 +197,14 @@ def gpu_usage_by_pid() -> dict[int, float]:
                 pid = int(match.group(1))
                 usage[pid] = usage.get(pid, 0.0) + float(sample.get("CookedValue") or 0)
         usage = {pid: round(min(value, 100.0), 1) for pid, value in usage.items()}
+        GPU_FAILURES = 0
+        GPU_RETRY_AT = 0.0
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError, ValueError) as error:
-        logging.warning("GPU procesní čítače nejsou dostupné: %s", error)
+        GPU_FAILURES += 1
+        if GPU_FAILURES <= 3:
+            logging.warning("GPU procesní čítače nejsou dostupné: %s", error)
+        if GPU_FAILURES >= 3:
+            GPU_RETRY_AT = now + 60
         usage = GPU_CACHE[1]
     GPU_CACHE = (now, usage)
     return usage

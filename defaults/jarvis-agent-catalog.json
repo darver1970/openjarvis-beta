@@ -94,26 +94,6 @@
       "integrity": "Instalace vyžaduje kontrolu předpokladů",
       "permissions": ["Bez aktivních oprávnění před instalací"],
       "rules": ["Instalaci je nutné samostatně potvrdit."]
-    },
-    {
-      "id": "automation-pro",
-      "name": "Automation Pro",
-      "role": "Rozšířená automatizace pracovních postupů",
-      "model": "qwen3.5:9b",
-      "price_type": "paid",
-      "price": "19 EUR / měsíc",
-      "currency": "EUR",
-      "license": "Komerční licence",
-      "source": "Ukázkový katalogový záznam",
-      "vendor": "Dodavatel Automation Pro",
-      "version": "1.0.0",
-      "integrity": "Vyžaduje ověření před instalací",
-      "permissions": [
-        "Přístup k rozšířením automatizace"
-      ],
-      "rules": [
-        "Nákup a platbu musí uživatel dokončit ručně."
-      ]
     }
   ]
 }

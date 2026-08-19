@@ -1,6 +1,8 @@
 # Spouští všechny lokální služby Jarvise z instalační složky a otevře HUD rozhraní.
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
+$launcherMutex = [Threading.Mutex]::new($false, 'Local\JarvisLauncherV1')
+if (-not $launcherMutex.WaitOne(30000)) { throw 'Jiný start Jarvise stále probíhá.' }
 $env:PATH = "$root\runtime\node;$env:PATH"
 $env:OPENJARVIS_HOME = $root
 $env:OLLAMA_MODELS = "$root\runtime\ollama-models"
@@ -96,27 +98,6 @@ if (-not (Test-Port 8126) -or $controlProcesses) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_control.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
-# Každé spuštění hlavního launcheru obnoví lokální wake-word mikrofon.
-try {
-    $voicePayload = @{ enabled = $true } | ConvertTo-Json -Compress
-    Invoke-RestMethod -Uri "http://127.0.0.1:8126/voice/state" -Method Post -ContentType "application/json" -Body $voicePayload -TimeoutSec 5 | Out-Null
-} catch {
-    Write-Warning "Hlasový modul se nepodařilo při startu aktivovat: $($_.Exception.Message)"
-}
-
-# Samostatný lokální klient reaguje na „Hey Jarvis“ i když HUD právě čte odpověď.
-$voiceProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object {
-        $_.Name -eq "python.exe" -and
-        $_.CommandLine -like "*$root*" -and
-        $_.CommandLine -like "*jarvis_voice.py*"
-    }
-# Hlasový klient je při hlavním startu krátce obnoven, aby vždy načetl
-# aktuální mikrofon, model i režim bez wake-wordu.
-$voiceProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Milliseconds 400
-Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\jarvis_voice.py" -WorkingDirectory $root -WindowStyle Hidden
-
 $networkProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -eq "python.exe" -and $_.CommandLine -match "network_monitor.py" } |
     Select-Object -First 1
@@ -124,9 +105,16 @@ if (-not $networkProcess) {
     Start-Process -FilePath "$root\src\.venv\Scripts\python.exe" -ArgumentList "$root\network_monitor.py" -WorkingDirectory $root -WindowStyle Hidden
 }
 
-# HUD se otevírá ve vlastním izolovaném okně JARVISu, ne v uživatelském prohlížeči.
-$desktopApp = "$root\desktop\Jarvis-HUD.exe"
-if (-not (Test-Path -LiteralPath $desktopApp)) {
-    throw "Nativní okno Jarvise nebylo nalezeno: $desktopApp"
+# Nový Electron shell obsahuje skutečný prohlížeč WebContentsView, Monaco a pracovní karty.
+$desktopApp = "$root\desktop\Jarvis-Desktop.exe"
+if (Test-Path -LiteralPath $desktopApp) {
+    Start-Process -FilePath $desktopApp -WorkingDirectory "$root\desktop"
+} else {
+    $electron = "$root\desktop-electron\node_modules\electron\dist\electron.exe"
+    if (-not (Test-Path -LiteralPath $electron)) {
+        throw "Desktopová vrstva Jarvise nebyla nalezena. Spusťte install.ps1."
+    }
+    Start-Process -FilePath $electron -ArgumentList "$root\desktop-electron" -WorkingDirectory "$root\desktop-electron"
 }
-Start-Process -FilePath $desktopApp -WorkingDirectory "$root\desktop"
+$launcherMutex.ReleaseMutex()
+$launcherMutex.Dispose()
